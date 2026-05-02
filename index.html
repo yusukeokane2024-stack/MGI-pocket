@@ -7,13 +7,12 @@
     <!-- Libraries -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
     <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     
-    <!-- Firebase SDK Setup (Cloud Persistence) -->
+    <!-- Firebase SDK -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
@@ -27,14 +26,13 @@
     <style>
         body { font-family: 'Noto Sans JP', sans-serif; background-color: #F8FAFB; -webkit-tap-highlight-color: transparent; }
         .main-title { font-family: 'Playfair Display', serif; }
-        .glass-nav { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(15px); border-top: 1px solid rgba(212, 175, 55, 0.1); }
+        .glass-nav { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(20px); border-top: 1px solid rgba(212, 175, 55, 0.1); }
         .animate-pop { animation: pop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
-        @keyframes pop { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+        @keyframes pop { from { opacity: 0; transform: scale(0.98) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }
         input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-        input[type="range"] { accent-color: #D4AF37; }
-        .input-gold-focus:focus { outline: none; border-color: #D4AF37; box-shadow: 0 0 0 2px rgba(212, 175, 55, 0.1); }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        input[type="range"] { accent-color: #D4AF37; }
     </style>
 </head>
 <body>
@@ -42,19 +40,9 @@
 
     <script type="text/babel">
         const { useState, useMemo, useEffect } = React;
-        const { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, Legend } = Recharts;
+        const { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend } = Recharts;
 
-        // Firebase Configuration (安定版)
-        const firebaseConfig = { 
-            apiKey: "AIzaSyBmq8Y8LiGU_HGmyiCFEjt8rN-enPn5zzw", 
-            authDomain: "mgi-pocket.firebaseapp.com",
-            projectId: "mgi-pocket",
-            storageBucket: "mgi-pocket.firebasestorage.app",
-            messagingSenderId: "461429650252",
-            appId: "1:461429650252:web:2876c556e4f2bbfe5fd5e9"
-        };
-        const appId = 'mgi-ultimate-v1';
-
+        // --- 資産カテゴリの定義 ---
         const ASSET_CATEGORIES = {
             '生活防衛資金': { color: '#455A64', label: '防衛', icon: 'wallet' },
             '現金': { color: '#B2EBF2', label: '現金', icon: 'banknote' },
@@ -73,6 +61,16 @@
             { id: 'housing', label: '住居・ローン', icon: 'home' }
         ];
 
+        const firebaseConfig = { 
+            apiKey: "AIzaSyBmq8Y8LiGU_HGmyiCFEjt8rN-enPn5zzw", 
+            authDomain: "mgi-pocket.firebaseapp.com",
+            projectId: "mgi-pocket",
+            storageBucket: "mgi-pocket.firebasestorage.app",
+            messagingSenderId: "461429650252",
+            appId: "1:461429650252:web:2876c556e4f2bbfe5fd5e9"
+        };
+        const appId = 'mgi-ultimate-v1'; // データを引き継ぐための重要ID
+
         const Icon = ({ name, className = "w-5 h-5" }) => {
             useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name]);
             return <i data-lucide={name} className={className}></i>;
@@ -81,26 +79,29 @@
         const App = () => {
             const [fbReady, setFbReady] = useState(!!window.FB);
             const [user, setUser] = useState(null);
-            const [activeTab, setActiveTab] = useState('costs');
+            const [activeTab, setActiveTab] = useState('assets');
             const [loading, setLoading] = useState(true);
             const [syncing, setSyncing] = useState(false);
             
             const [assets, setAssets] = useState([]);
             const [costs, setCosts] = useState({});
             const [history, setHistory] = useState([]);
+            const [projects, setProjects] = useState([]);
+            const [dividends, setDividends] = useState([]);
 
-            const [simMode, setSimMode] = useState('combined');
-            const [simInitialManual, setSimInitialManual] = useState(0);
             const [simRate, setSimRate] = useState(7);
             const [simYears, setSimYears] = useState(30);
             const [simMonthlyManual, setSimMonthlyManual] = useState(null);
 
-            const [isAdding, setIsAdding] = useState(false);
-            const [newItem, setNewItem] = useState({ name: '', amount: '', category: '株式' });
-            const [editingId, setEditingId] = useState(null);
-            const [editForm, setEditForm] = useState({ name: '', amount: '', category: '' });
+            const [isAddingAsset, setIsAddingAsset] = useState(false);
+            const [newAsset, setNewAsset] = useState({ name: '', amount: '', category: '株式' });
+            const [isAddingProject, setIsAddingProject] = useState(false);
+            const [newProject, setNewProject] = useState({ name: '', amount: '', yield: '', endDate: '' });
+            const [isAddingDiv, setIsAddingDiv] = useState(false);
+            const [newDiv, setNewDiv] = useState({ name: '', amount: '', date: new Date().toISOString().split('T')[0] });
             const [confirmDelete, setConfirmDelete] = useState({ isOpen: false, type: '', id: null, name: '' });
 
+            // Firebase Initialization
             useEffect(() => {
                 const handleReady = () => setFbReady(true);
                 window.addEventListener('firebase-ready', handleReady);
@@ -112,7 +113,6 @@
                 const { initializeApp, getAuth, signInAnonymously, onAuthStateChanged } = window.FB;
                 const app = initializeApp(firebaseConfig);
                 const auth = getAuth(app);
-                
                 const unsubscribe = onAuthStateChanged(auth, (u) => {
                     if (u) setUser(u);
                     else signInAnonymously(auth);
@@ -122,7 +122,7 @@
 
             useEffect(() => {
                 if (!user || !fbReady) return;
-                const { getFirestore, collection, onSnapshot, query, doc } = window.FB;
+                const { getFirestore, collection, onSnapshot, doc } = window.FB;
                 const db = getFirestore();
                 
                 setLoading(true);
@@ -130,51 +130,37 @@
                     setAssets(snap.docs.map(d => ({ id: d.id, ...d.data() })));
                     setLoading(false);
                 });
-
                 const unsubCosts = onSnapshot(doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'costs'), (doc) => {
                     if (doc.exists()) setCosts(doc.data());
                 });
-
+                const unsubProjects = onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'projects'), (snap) => {
+                    setProjects(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                });
+                const unsubDivs = onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'dividends'), (snap) => {
+                    const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    data.sort((a, b) => new Date(a.date) - new Date(b.date));
+                    setDividends(data);
+                });
                 const unsubHistory = onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'history'), (snap) => {
                     const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                     data.sort((a, b) => a.timestamp - b.timestamp);
                     setHistory(data);
                 });
 
-                return () => { unsubAssets(); unsubCosts(); unsubHistory(); };
+                return () => { unsubAssets(); unsubCosts(); unsubProjects(); unsubDivs(); unsubHistory(); };
             }, [user, fbReady]);
 
             const formatYen = (num) => (num / 10000).toLocaleString(undefined, {maximumFractionDigits:1}) + '万';
 
-            const executeDelete = async () => {
-                const { getFirestore, doc, deleteDoc } = window.FB;
-                const db = getFirestore();
-                setSyncing(true);
-                if (confirmDelete.type === 'asset') {
-                    await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'assets', confirmDelete.id));
-                } else if (confirmDelete.type === 'history') {
-                    await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'history', confirmDelete.id));
-                }
-                setConfirmDelete({ isOpen: false, type: '', id: null, name: '' });
-                setSyncing(false);
-            };
-
             const totals = useMemo(() => {
                 const t = assets.reduce((acc, curr) => {
-                    const amount = Number(curr.amount) || 0;
-                    acc[curr.category] = (acc[curr.category] || 0) + amount;
-                    acc.total += amount;
+                    acc[curr.category] = (acc[curr.category] || 0) + Number(curr.amount);
+                    acc.total += Number(curr.amount);
                     return acc;
                 }, { total: 0 });
                 t.growthBase = (t['株式'] || 0) + (t['老後資金'] || 0) + (t['不動産'] || 0) + (t['暗号資産'] || 0) + (t['ゴールド'] || 0);
-                t.investable = t.growthBase + (t['現金'] || 0);
                 return t;
             }, [assets]);
-
-            const growthRate = useMemo(() => {
-                if (!totals.investable) return 0;
-                return Math.round((totals.growthBase / totals.investable) * 100);
-            }, [totals]);
 
             const monthlySavingTotal = useMemo(() => {
                 return Object.values(costs).reduce((acc, item) => {
@@ -189,7 +175,7 @@
                 const res = [];
                 const annualR = simRate / 100;
                 const monthlyR = Math.pow(1 + annualR, 1 / 12) - 1;
-                let current = simMode === 'combined' ? (totals.growthBase || 0) : simInitialManual;
+                let current = totals.growthBase || 0;
                 for (let i = 0; i <= simYears; i++) {
                     if (i > 0) {
                         for (let m = 0; m < 12; m++) current = (current + currentSimMonthly) * (1 + monthlyR);
@@ -197,7 +183,57 @@
                     res.push({ year: `${i}年`, amount: Math.round(current / 10000) });
                 }
                 return res;
-            }, [totals.growthBase, simMode, simInitialManual, currentSimMonthly, simRate, simYears]);
+            }, [totals.growthBase, currentSimMonthly, simRate, simYears]);
+
+            const chartDividends = useMemo(() => {
+                const map = {};
+                dividends.forEach(d => {
+                    const m = d.date.substring(0, 7); 
+                    map[m] = (map[m] || 0) + Number(d.amount);
+                });
+                const sorted = Object.entries(map).sort((a,b) => a[0].localeCompare(b[0]));
+                return sorted.map(([date, amount]) => ({
+                    label: `${date.split('-')[1]}月`,
+                    amount
+                })).slice(-6); 
+            }, [dividends]);
+
+            const executeDelete = async () => {
+                const { getFirestore, doc, deleteDoc } = window.FB;
+                const db = getFirestore();
+                setSyncing(true);
+                const path = confirmDelete.type === 'asset' ? 'assets' : confirmDelete.type === 'project' ? 'projects' : confirmDelete.type === 'dividend' ? 'dividends' : 'history';
+                await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, path, confirmDelete.id));
+                setConfirmDelete({ isOpen: false, type: '', id: null, name: '' });
+                setSyncing(false);
+            };
+
+            const addAsset = async () => {
+                setSyncing(true);
+                const { getFirestore, collection, addDoc } = window.FB;
+                await addDoc(collection(getFirestore(), 'artifacts', appId, 'users', user.uid, 'assets'), { ...newAsset, amount: Number(newAsset.amount) });
+                setNewAsset({ name: '', amount: '', category: '株式' });
+                setIsAddingAsset(false);
+                setSyncing(false);
+            };
+
+            const addProject = async () => {
+                setSyncing(true);
+                const { getFirestore, collection, addDoc } = window.FB;
+                await addDoc(collection(getFirestore(), 'artifacts', appId, 'users', user.uid, 'projects'), { ...newProject, amount: Number(newProject.amount), yield: Number(newProject.yield) });
+                setNewProject({ name: '', amount: '', yield: '', endDate: '' });
+                setIsAddingProject(false);
+                setSyncing(false);
+            };
+
+            const addDividend = async () => {
+                setSyncing(true);
+                const { getFirestore, collection, addDoc } = window.FB;
+                await addDoc(collection(getFirestore(), 'artifacts', appId, 'users', user.uid, 'dividends'), { ...newDiv, amount: Number(newDiv.amount) });
+                setNewDiv({ name: '', amount: '', date: new Date().toISOString().split('T')[0] });
+                setIsAddingDiv(false);
+                setSyncing(false);
+            };
 
             const saveCost = async (itemId, type, value) => {
                 setSyncing(true);
@@ -208,24 +244,8 @@
                 setSyncing(false);
             };
 
-            const addItem = async () => {
-                setSyncing(true);
-                const { getFirestore, collection, addDoc } = window.FB;
-                await addDoc(collection(getFirestore(), 'artifacts', appId, 'users', user.uid, 'assets'), { ...newItem, amount: Number(newItem.amount), createdAt: Date.now() });
-                setNewItem({ name: '', amount: '', category: '株式' });
-                setIsAdding(false);
-                setSyncing(false);
-            };
-
-            const updateAsset = async () => {
-                setSyncing(true);
-                const { getFirestore, doc, updateDoc } = window.FB;
-                await updateDoc(doc(getFirestore(), 'artifacts', appId, 'users', user.uid, 'assets', editingId), { ...editForm, amount: Number(editForm.amount) });
-                setEditingId(null);
-                setSyncing(false);
-            };
-
             const recordSnapshot = async () => {
+                if (totals.total === 0) return;
                 setSyncing(true);
                 const { getFirestore, collection, addDoc } = window.FB;
                 const now = new Date();
@@ -239,246 +259,216 @@
                 setSyncing(false);
             };
 
-            if (loading) return <div className="min-h-screen flex items-center justify-center bg-[#F8FAFB]"><div className="w-10 h-10 border-4 border-[#D4AF37] border-t-transparent rounded-full animate-spin"></div></div>;
+            if (loading) return <div className="min-h-screen flex items-center justify-center bg-[#F8FAFB]"><div className="w-8 h-8 border-4 border-[#D4AF37] border-t-transparent rounded-full animate-spin"></div></div>;
 
             return (
-                <div className="max-w-md mx-auto min-h-screen pb-32 relative overflow-x-hidden">
-                    {/* Delete Confirm Modal */}
+                <div className="max-w-md mx-auto min-h-screen pb-32 relative no-scrollbar overflow-x-hidden">
+                    {/* Delete Confirm */}
                     {confirmDelete.isOpen && (
                         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center p-6">
-                            <div className="bg-white rounded-[40px] p-8 w-full max-w-xs shadow-2xl space-y-6 animate-pop">
-                                <div className="text-center space-y-2">
-                                    <div className="w-16 h-16 bg-red-50 rounded-3xl flex items-center justify-center text-red-500 mx-auto"><Icon name="trash-2" className="w-8 h-8" /></div>
-                                    <h3 className="text-base font-bold text-[#455A64]">削除しますか？</h3>
-                                    <p className="text-[10px] text-gray-400">「{confirmDelete.name}」を完全に削除します。この操作は元に戻せません。</p>
-                                </div>
+                            <div className="bg-white rounded-[40px] p-8 w-full max-w-xs shadow-2xl space-y-6 animate-pop text-center">
+                                <div className="w-16 h-16 bg-red-50 rounded-3xl flex items-center justify-center text-red-500 mx-auto"><Icon name="trash-2" className="w-8 h-8" /></div>
+                                <h3 className="font-bold text-[#455A64]">削除しますか？</h3>
+                                <p className="text-xs text-gray-400">「{confirmDelete.name}」を完全に削除します。</p>
                                 <div className="flex gap-3">
-                                    <button onClick={() => setConfirmDelete({ isOpen: false, type: '', id: null, name: '' })} className="flex-1 py-3.5 text-xs font-bold text-gray-400">戻る</button>
-                                    <button onClick={executeDelete} className="flex-1 py-3.5 bg-red-500 text-white rounded-2xl text-xs font-bold shadow-lg">削除する</button>
+                                    <button onClick={() => setConfirmDelete({ isOpen: false })} className="flex-1 py-4 text-xs font-bold text-gray-400">戻る</button>
+                                    <button onClick={executeDelete} className="flex-1 py-4 bg-red-500 text-white rounded-2xl text-xs font-bold shadow-lg">削除する</button>
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* App Header */}
-                    <header className="p-6 pt-8 flex justify-between items-end sticky top-0 bg-[#F8FAFB]/80 backdrop-blur-md z-40">
+                    <header className="p-6 pt-10 flex justify-between items-end sticky top-0 bg-[#F8FAFB]/90 backdrop-blur-md z-40">
                         <div>
-                            <h1 className="text-2xl font-bold text-[#455A64] main-title">Money Grow IG</h1>
-                            <div className="flex items-center gap-2 mt-1">
-                                <div className="flex items-center gap-1 text-[#D4AF37]">
-                                    <Icon name="shield-check" className="w-3 h-3" />
-                                    <span className="text-[8px] font-bold uppercase tracking-widest">Strategic Portfolio</span>
-                                </div>
-                                <div className="flex items-center gap-1 text-gray-300">
-                                    <div className={`w-1.5 h-1.5 rounded-full ${syncing ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}`}></div>
-                                    <span className="text-[8px] font-bold uppercase tracking-widest">{syncing ? 'Syncing...' : 'Cloud Safe'}</span>
-                                </div>
+                            <h1 className="text-2xl font-bold text-[#455A64] main-title leading-tight">Money Grow IG</h1>
+                            <div className="flex items-center gap-1.5 mt-1 text-emerald-500">
+                                <div className={`w-1.5 h-1.5 rounded-full ${syncing ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}`}></div>
+                                <span className="text-[8px] font-bold uppercase tracking-widest">{syncing ? 'Syncing...' : 'Cloud Safe'}</span>
                             </div>
                         </div>
                         <div className="text-right">
-                            <p className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter">Current Wealth</p>
+                            <p className="text-[9px] font-bold text-gray-400 uppercase">Total Wealth</p>
                             <p className="text-xl font-bold text-[#455A64]">{formatYen(totals.total)}</p>
                         </div>
                     </header>
 
                     <main className="px-5 mt-4">
-                        {/* 1. COSTS */}
-                        {activeTab === 'costs' && (
-                            <div className="space-y-6 animate-pop">
-                                <div className="bg-[#455A64] p-8 rounded-[40px] text-white shadow-xl relative overflow-hidden">
-                                    <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-bl-full"></div>
-                                    <h3 className="text-xl font-bold mb-2 flex items-center gap-2 text-[#B2EBF2] font-bold uppercase"><Icon name="scissors" /> 固定費の最適化</h3>
-                                    <div className="flex items-center gap-6 bg-white/10 p-6 rounded-3xl border border-white/10 mt-6">
-                                        <div className="w-12 h-12 bg-[#D4AF37] rounded-2xl flex items-center justify-center shadow-lg"><Icon name="trending-up" className="w-6 h-6 text-white" /></div>
-                                        <div>
-                                            <p className="text-[10px] uppercase font-bold opacity-60">月々の削減額（投資原資）</p>
-                                            <p className="text-3xl font-bold text-[#D4AF37]">{monthlySavingTotal.toLocaleString()}<span className="text-sm ml-1 text-white font-normal">円</span></p>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="space-y-4">
-                                    {COST_ITEMS.map(item => (
-                                        <div key={item.id} className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 space-y-4">
-                                            <div className="flex items-center gap-3"><div className="p-2.5 rounded-xl bg-[#F8FAFB] text-[#455A64]"><Icon name={item.icon} className="w-4 h-4" /></div><h4 className="text-sm font-bold text-[#455A64]">{item.label}</h4></div>
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div className="space-y-1"><label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">現状の支払</label><input type="number" className="w-full bg-gray-50 p-3 rounded-xl text-sm font-bold focus:outline-none" value={costs[item.id]?.current || ''} onChange={e => saveCost(item.id, 'current', e.target.value)} /></div>
-                                                <div className="space-y-1"><label className="text-[9px] font-bold text-[#D4AF37] uppercase tracking-widest">見直し後</label><input type="number" className="w-full bg-[#E0F2F1] p-3 rounded-xl text-sm font-bold focus:outline-none" value={costs[item.id]?.after || ''} onChange={e => saveCost(item.id, 'after', e.target.value)} /></div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* 2. ASSETS */}
+                        {/* 1. ASSETS TAB */}
                         {activeTab === 'assets' && (
                             <div className="space-y-6 animate-pop">
-                                <div className="bg-white p-6 rounded-[32px] shadow-sm border border-gray-100">
-                                    <div className="flex items-center justify-between gap-6">
-                                        <div className="w-24 h-24 shrink-0">
-                                            <ResponsiveContainer width="100%" height="100%">
-                                                <PieChart>
-                                                    <Pie data={Object.keys(ASSET_CATEGORIES).map(cat => ({ name: cat, value: totals[cat] || 0 }))} innerRadius={25} outerRadius={38} paddingAngle={3} dataKey="value" stroke="none">
-                                                        {Object.keys(ASSET_CATEGORIES).map((cat, i) => <Cell key={i} fill={ASSET_CATEGORIES[cat].color} />)}
-                                                    </Pie>
-                                                </PieChart>
-                                            </ResponsiveContainer>
-                                        </div>
-                                        <div className="flex-1 grid grid-cols-1 gap-y-2">
-                                            {Object.entries(ASSET_CATEGORIES).map(([name, info]) => (
-                                                <div key={name} className={`flex items-center justify-between min-w-0 ${totals[name] > 0 ? 'opacity-100' : 'opacity-20'}`}>
-                                                    <div className="flex items-center gap-1.5 min-w-0">
-                                                        <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: info.color }}></div>
-                                                        <span className="text-[9px] font-bold text-gray-500 truncate leading-none">{info.label}</span>
-                                                    </div>
-                                                    <div className="text-right">
-                                                        <span className="text-[9px] font-bold text-[#455A64] leading-none">{formatYen(totals[name] || 0)}</span>
-                                                        <span className="text-[7px] text-gray-300 ml-1">({totals.total > 0 ? Math.round((totals[name] || 0) / totals.total * 100) : 0}%)</span>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
+                                <div className="bg-white p-6 rounded-[32px] shadow-sm border border-gray-100 flex items-center gap-6">
+                                    <div className="w-24 h-24 shrink-0">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <PieChart>
+                                                <Pie data={Object.keys(ASSET_CATEGORIES).map(cat => ({ name: cat, value: totals[cat] || 0 }))} innerRadius={25} outerRadius={38} paddingAngle={3} dataKey="value" stroke="none">
+                                                    {Object.keys(ASSET_CATEGORIES).map((cat, i) => <Cell key={i} fill={ASSET_CATEGORIES[cat].color} />)}
+                                                </Pie>
+                                            </PieChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                    <div className="flex-1 grid grid-cols-1 gap-y-1.5">
+                                        {Object.entries(ASSET_CATEGORIES).map(([name, info]) => (
+                                            <div key={name} className={`flex items-center justify-between ${totals[name] > 0 ? 'opacity-100' : 'opacity-20'}`}>
+                                                <div className="flex items-center gap-1.5 truncate"><div className="w-2 h-2 rounded-full" style={{ backgroundColor: info.color }}></div><span className="text-[9px] font-bold text-gray-500 uppercase">{info.label}</span></div>
+                                                <span className="text-[9px] font-bold text-[#455A64]">{formatYen(totals[name] || 0)}</span>
+                                            </div>
+                                        ))}
                                     </div>
                                 </div>
-
-                                <div className="space-y-3">
+                                <div className="space-y-2">
                                     {assets.map(asset => (
-                                        editingId === asset.id ? (
-                                            <div key={asset.id} className="bg-white p-6 rounded-[32px] border-2 border-[#B2EBF2] space-y-4 animate-pop shadow-xl">
-                                                <input type="text" className="w-full p-2 bg-gray-50 rounded-lg text-sm font-bold" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} />
-                                                <input type="number" className="w-full p-2 bg-gray-50 rounded-lg text-sm font-bold" value={editForm.amount} onChange={e => setEditForm({...editForm, amount: e.target.value})} />
-                                                <div className="grid grid-cols-2 gap-2 p-1">
-                                                    {Object.keys(ASSET_CATEGORIES).map(cat => (
-                                                        <button key={cat} onClick={() => setEditForm({...editForm, category: cat})} className={`py-2 rounded-md text-[9px] font-bold transition-all ${editForm.category === cat ? 'bg-[#455A64] text-white' : 'bg-gray-100 text-gray-400'}`}>{ASSET_CATEGORIES[cat].label}</button>
-                                                    ))}
-                                                </div>
-                                                <div className="flex gap-2 pt-2"><button onClick={() => setEditingId(null)} className="flex-1 text-xs font-bold text-gray-400">戻る</button><button onClick={updateAsset} className="flex-1 py-3 bg-[#455A64] text-white rounded-xl text-xs font-bold shadow-lg">更新</button></div>
+                                        <div key={asset.id} className="bg-white p-4 rounded-2xl flex justify-between items-center shadow-sm border border-gray-50">
+                                            <div className="flex items-center gap-3">
+                                                <div className="p-2 rounded-lg" style={{ backgroundColor: ASSET_CATEGORIES[asset.category].color + '15', color: ASSET_CATEGORIES[asset.category].color }}><Icon name={ASSET_CATEGORIES[asset.category].icon} className="w-4 h-4" /></div>
+                                                <div><div className="text-sm font-bold text-[#455A64]">{asset.name}</div><div className="text-[8px] text-gray-400 font-bold uppercase">{asset.category}</div></div>
                                             </div>
-                                        ) : (
-                                            <div key={asset.id} className="bg-white p-4 rounded-2xl flex justify-between items-center shadow-sm border border-gray-50 group active:scale-95 transition-all">
-                                                <div className="flex items-center gap-3">
-                                                    <div className="p-2.5 rounded-xl" style={{ backgroundColor: ASSET_CATEGORIES[asset.category].color + '15', color: ASSET_CATEGORIES[asset.category].color }}><Icon name={ASSET_CATEGORIES[asset.category].icon} className="w-4 h-4" /></div>
-                                                    <div><div className="text-sm font-bold text-[#455A64] truncate max-w-[120px]">{asset.name}</div><div className="text-[9px] text-gray-400 font-bold uppercase">{asset.category}</div></div>
-                                                </div>
-                                                <div className="flex items-center gap-3">
-                                                    <div className="text-right font-bold text-[#455A64]">{formatYen(asset.amount)}</div>
-                                                    <div className="flex gap-1">
-                                                        <button onClick={() => { setEditingId(asset.id); setEditForm(asset); }} className="p-1 text-gray-200 hover:text-[#D4AF37]"><Icon name="edit-2" className="w-3.5 h-3.5" /></button>
-                                                        <button onClick={() => setConfirmDelete({ isOpen: true, type: 'asset', id: asset.id, name: asset.name })} className="p-1 text-gray-200 hover:text-red-400"><Icon name="trash-2" className="w-3.5 h-3.5" /></button>
-                                                    </div>
-                                                </div>
+                                            <div className="flex items-center gap-4">
+                                                <span className="font-bold text-[#455A64] text-sm">{formatYen(asset.amount)}</span>
+                                                <button onClick={() => setConfirmDelete({ isOpen: true, type: 'asset', id: asset.id, name: asset.name })} className="text-gray-200"><Icon name="trash-2" className="w-3.5 h-3.5" /></button>
                                             </div>
-                                        )
-                                    ))}
-                                    {isAdding ? (
-                                        <div className="bg-white p-6 rounded-[32px] border-2 border-[#D4AF37] space-y-4 animate-pop shadow-xl">
-                                            <input type="text" placeholder="資産名称" className="w-full p-3 bg-gray-50 rounded-xl text-sm font-bold" value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} />
-                                            <input type="number" placeholder="金額（円）" className="w-full p-3 bg-gray-50 rounded-xl text-sm font-bold" value={newItem.amount} onChange={e => setNewItem({...newItem, amount: e.target.value})} />
-                                            <div className="grid grid-cols-2 gap-2 p-1">
-                                                {Object.keys(ASSET_CATEGORIES).map(cat => (
-                                                    <button key={cat} onClick={() => setNewItem({...newItem, category: cat})} className={`py-2 rounded-lg text-[10px] font-bold ${newItem.category === cat ? 'bg-[#455A64] text-white' : 'bg-gray-100 text-gray-400'}`}>{ASSET_CATEGORIES[cat].label}</button>
-                                                ))}
-                                            </div>
-                                            <div className="flex gap-2 pt-2"><button onClick={() => setIsAdding(false)} className="flex-1 text-xs font-bold text-gray-400">戻る</button><button onClick={addItem} className="flex-1 py-3 bg-[#D4AF37] text-white rounded-xl text-xs font-bold shadow-lg">資産を保存</button></div>
                                         </div>
-                                    ) : (
-                                        <button onClick={() => setIsAdding(true)} className="w-full py-5 rounded-2xl border-2 border-dashed border-gray-200 text-gray-400 text-sm font-bold flex items-center justify-center gap-2 active:bg-gray-50 transition-all font-bold uppercase tracking-widest"><Icon name="plus" /> 資産を追加</button>
-                                    )}
+                                    ))}
+                                    <button onClick={() => setIsAddingAsset(true)} className="w-full py-6 rounded-2xl border-2 border-dashed border-gray-200 text-gray-300 text-[10px] font-bold uppercase tracking-[0.2em] flex items-center justify-center gap-2"><Icon name="plus" /> 資産を追加</button>
                                 </div>
                             </div>
                         )}
 
-                        {/* 3. STRATEGY */}
-                        {activeTab === 'strategy' && (
-                            <div className="space-y-6 animate-pop pb-10">
-                                <div className="bg-[#455A64] p-8 rounded-[40px] text-white shadow-xl relative overflow-hidden">
-                                    <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-bl-full"></div>
-                                    <h3 className="text-xl font-bold mb-6 flex items-center gap-2 text-[#B2EBF2] font-bold uppercase"><Icon name="target" /> 資産の最適配置</h3>
-                                    <div className="bg-white/10 p-6 rounded-3xl border border-white/10 space-y-4">
-                                        <div>
-                                            <p className="text-[10px] uppercase font-bold opacity-70 mb-1 tracking-widest">現在の「稼働中」の資産</p>
-                                            <div className="flex items-baseline gap-2">
-                                                <p className="text-5xl font-bold text-[#D4AF37]">{growthRate}%</p>
-                                                <p className="text-[10px] font-bold opacity-60">（稼働率）</p>
-                                            </div>
-                                            <div className="mt-4 h-2 w-full bg-white/10 rounded-full overflow-hidden">
-                                                <div className="h-full bg-[#D4AF37] transition-all duration-1000" style={{ width: `${growthRate}%` }}></div>
-                                            </div>
-                                        </div>
-                                        <p className="text-[11px] leading-relaxed opacity-80 pt-4 border-t border-white/5">
-                                            全資産のうち、将来的に増える見込みのある「株式・不動産・暗号資産など」にお金が回せている割合です。
-                                        </p>
+                        {/* 2. DIVIDEND TAB */}
+                        {activeTab === 'dividend' && (
+                            <div className="space-y-6 animate-pop">
+                                <div className="bg-[#455A64] p-8 rounded-[48px] text-white shadow-xl relative overflow-hidden">
+                                    <div className="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-bl-full"></div>
+                                    <h3 className="text-xl font-bold mb-6 text-[#D4AF37] uppercase flex items-center gap-2"><Icon name="banknote" /> 株式配当管理</h3>
+                                    <div className="bg-white/10 p-5 rounded-3xl border border-white/10">
+                                        <p className="text-[10px] uppercase font-bold opacity-60 mb-1 tracking-widest">累積受取額</p>
+                                        <p className="text-3xl font-bold text-white">{dividends.reduce((acc, d) => acc + d.amount, 0).toLocaleString()}<span className="text-xs ml-1 opacity-40">円</span></p>
                                     </div>
                                 </div>
+                                <div className="bg-white p-8 rounded-[40px] shadow-sm border border-gray-100">
+                                    <div className="flex justify-between items-center mb-6"><h3 className="text-xs font-bold text-[#455A64] uppercase tracking-widest">月別配当推移</h3><button onClick={() => setIsAddingDiv(true)} className="p-2 bg-[#F8FAFB] rounded-full text-[#D4AF37]"><Icon name="plus" className="w-5 h-5" /></button></div>
+                                    {chartDividends.length > 0 ? (
+                                        <div className="h-44 w-full">
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <BarChart data={chartDividends}>
+                                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                                                    <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{fontSize: 10}} />
+                                                    <Tooltip cursor={{fill: '#f8fafb'}} />
+                                                    <Bar dataKey="amount" fill="#D4AF37" radius={[4, 4, 0, 0]} barSize={20} />
+                                                </BarChart>
+                                            </ResponsiveContainer>
+                                        </div>
+                                    ) : <div className="h-40 flex items-center justify-center text-[10px] text-gray-300 font-bold border-2 border-dashed rounded-3xl">記録がありません</div>}
+                                </div>
+                                <div className="space-y-2">
+                                    {dividends.slice().reverse().map(d => (
+                                        <div key={d.id} className="bg-white p-4 rounded-2xl flex justify-between items-center shadow-sm border border-gray-50">
+                                            <div><div className="text-xs font-bold text-[#455A64]">{d.name}</div><div className="text-[8px] text-gray-400 font-bold uppercase">{d.date}</div></div>
+                                            <div className="flex items-center gap-4">
+                                                <span className="font-bold text-emerald-500 text-xs">+{d.amount.toLocaleString()}円</span>
+                                                <button onClick={() => setConfirmDelete({ isOpen: true, type: 'dividend', id: d.id, name: d.name })} className="text-gray-200"><Icon name="trash-2" className="w-3.5 h-3.5" /></button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
 
-                                <div className="bg-white p-8 rounded-[40px] shadow-sm border border-gray-100 space-y-8">
-                                    <h3 className="text-sm font-bold flex items-center gap-2 text-[#455A64] font-bold uppercase tracking-widest"><Icon name="trending-up" className="text-[#D4AF37]" /> 資産推移シミュレーター</h3>
-                                    <div className="flex bg-gray-50 p-1 rounded-2xl border border-gray-100">
-                                        <button onClick={() => setSimMode('combined')} className={`flex-1 py-2 text-[10px] font-bold rounded-xl transition-all ${simMode === 'combined' ? 'bg-[#455A64] text-white shadow-md' : 'text-gray-400'}`}>現在の資産と合算</button>
-                                        <button onClick={() => setSimMode('standalone')} className={`flex-1 py-2 text-[10px] font-bold rounded-xl transition-all ${simMode === 'standalone' ? 'bg-[#455A64] text-white shadow-md' : 'text-gray-400'}`}>独立計算</button>
+                        {/* 3. PROJECTS TAB */}
+                        {activeTab === 'projects' && (
+                            <div className="space-y-6 animate-pop">
+                                <div className="bg-[#455A64] p-8 rounded-[48px] text-white shadow-xl relative overflow-hidden">
+                                    <h3 className="text-xl font-bold mb-6 text-[#B2EBF2] uppercase flex items-center gap-2"><Icon name="building-2" /> クラファン案件</h3>
+                                    <div className="bg-white/10 p-5 rounded-3xl border border-white/10">
+                                        <p className="text-[10px] uppercase font-bold opacity-60 mb-1 tracking-widest">運用中の総額</p>
+                                        <p className="text-3xl font-bold text-white">{projects.reduce((acc, p) => acc + p.amount, 0).toLocaleString()}<span className="text-xs ml-1 opacity-40">円</span></p>
                                     </div>
+                                </div>
+                                <div className="flex justify-between items-center px-1"><h3 className="text-xs font-bold text-[#455A64] uppercase tracking-widest">運用案件リスト</h3><button onClick={() => setIsAddingProject(true)} className="text-[10px] font-bold text-[#D4AF37] uppercase tracking-widest">+ Add Project</button></div>
+                                <div className="space-y-3">
+                                    {projects.map(p => (
+                                        <div key={p.id} className="bg-white p-6 rounded-[32px] shadow-sm border border-gray-50 space-y-4">
+                                            <div className="flex justify-between items-start">
+                                                <div><div className="text-sm font-bold text-[#455A64]">{p.name}</div><div className="text-[9px] font-bold text-gray-400 mt-1 uppercase">償還予定: {p.endDate}</div></div>
+                                                <div className="text-right font-bold text-[#D4AF37]">{p.yield}%<div className="text-[8px] text-gray-300 uppercase">Yield</div></div>
+                                            </div>
+                                            <div className="flex justify-between items-end pt-3 border-t border-gray-50">
+                                                <div><p className="text-[8px] uppercase font-bold text-gray-300">Investment</p><p className="text-sm font-bold text-[#455A64]">{p.amount.toLocaleString()}円</p></div>
+                                                <button onClick={() => setConfirmDelete({ isOpen: true, type: 'project', id: p.id, name: p.name })} className="text-gray-200"><Icon name="trash-2" className="w-4 h-4" /></button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 4. STRATEGY TAB */}
+                        {activeTab === 'strategy' && (
+                            <div className="space-y-6 animate-pop pb-10">
+                                <div className="bg-white p-8 rounded-[48px] shadow-sm border border-gray-100 space-y-8">
+                                    <h3 className="text-xs font-bold text-[#455A64] uppercase tracking-widest flex items-center gap-2"><Icon name="trending-up" className="text-[#D4AF37]" /> 資産推移予測</h3>
                                     <div className="h-44 w-full">
                                         <ResponsiveContainer width="100%" height="100%">
                                             <AreaChart data={simData}>
                                                 <defs><linearGradient id="colorSim" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#D4AF37" stopOpacity={0.3}/><stop offset="95%" stopColor="#D4AF37" stopOpacity={0}/></linearGradient></defs>
-                                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f5f5f5" />
                                                 <XAxis dataKey="year" axisLine={false} tickLine={false} tick={{fontSize: 10}} interval={Math.ceil(simYears / 5)} />
-                                                <Tooltip formatter={(val) => val + '万円'} contentStyle={{borderRadius:'16px', border:'none'}} />
+                                                <Tooltip formatter={(val) => val + '万円'} />
                                                 <Area type="monotone" dataKey="amount" stroke="#D4AF37" strokeWidth={3} fillOpacity={1} fill="url(#colorSim)" />
                                             </AreaChart>
                                         </ResponsiveContainer>
                                     </div>
-                                    <div className="space-y-8 pt-4 border-t border-gray-50">
-                                        {simMode === 'standalone' && (
-                                            <div className="space-y-3 animate-pop">
-                                                <div className="flex justify-between items-center"><label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">開始時の元本</label><div className="flex items-center gap-1"><input type="number" className="w-24 text-right bg-gray-50 p-1 rounded-lg text-sm font-bold text-[#455A64] border border-gray-100" value={simInitialManual} onChange={e => setSimInitialManual(Number(e.target.value))} /><span className="text-[10px] text-gray-400 font-bold">円</span></div></div>
-                                                <input type="range" min="0" max="50000000" step="100000" value={simInitialManual} onChange={e => setSimInitialManual(Number(e.target.value))} className="w-full" />
-                                            </div>
-                                        )}
-                                        <div className="space-y-3"><div className="flex justify-between items-center"><label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">月々の投資額</label><div className="flex items-center gap-1"><input type="number" className="w-20 text-right bg-gray-50 p-1 rounded-lg text-sm font-bold text-[#455A64] border border-gray-100" value={currentSimMonthly} onChange={e => setSimMonthlyManual(Number(e.target.value))} /><span className="text-[10px] text-gray-400 font-bold">円</span></div></div><input type="range" min="0" max="1000000" step="5000" value={currentSimMonthly} onChange={e => setSimMonthlyManual(Number(e.target.value))} className="w-full" /></div>
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div className="space-y-3"><div className="flex justify-between items-center"><label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">年利 (%)</label><input type="number" step="0.1" className="w-12 text-right bg-gray-50 p-1 rounded-lg text-xs font-bold text-[#455A64] border border-gray-100" value={simRate} onChange={e => setSimRate(Number(e.target.value))} /></div><input type="range" min="0" max="20" step="0.5" value={simRate} onChange={e => setSimRate(Number(e.target.value))} className="w-full" /></div>
-                                            <div className="space-y-3"><div className="flex justify-between items-center"><label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">期間 (年)</label><input type="number" className="w-12 text-right bg-gray-50 p-1 rounded-lg text-xs font-bold text-[#455A64] border border-gray-100" value={simYears} onChange={e => setSimYears(Number(e.target.value))} /></div><input type="range" min="1" max="50" step="1" value={simYears} onChange={e => setSimYears(Number(e.target.value))} className="w-full" /></div>
+                                    <div className="space-y-6">
+                                        <div className="space-y-3"><div className="flex justify-between items-center"><label className="text-[10px] font-bold text-gray-400 uppercase">月々の投資額</label><span className="text-sm font-bold">{(currentSimMonthly).toLocaleString()}円</span></div><input type="range" min="0" max="500000" step="5000" value={currentSimMonthly} onChange={e => setSimMonthlyManual(Number(e.target.value))} className="w-full" /></div>
+                                        <div className="grid grid-cols-2 gap-6">
+                                            <div className="space-y-2"><label className="text-[10px] font-bold text-gray-400 uppercase">利回り(%)</label><input type="range" min="0" max="15" step="0.5" value={simRate} onChange={e => setSimRate(Number(e.target.value))} className="w-full" /></div>
+                                            <div className="space-y-2"><label className="text-[10px] font-bold text-gray-400 uppercase">期間(年)</label><input type="range" min="1" max="50" step="1" value={simYears} onChange={e => setSimYears(Number(e.target.value))} className="w-full" /></div>
                                         </div>
-                                        <div className="p-6 bg-[#455A64] rounded-[28px] flex justify-between items-center mt-4 shadow-lg"><div className="space-y-1"><span className="text-[10px] font-bold text-[#B2EBF2] uppercase tracking-widest block">{simYears}y Forecast</span><span className="text-3xl font-bold text-white leading-none">{simData[simData.length-1].amount.toLocaleString()}万円</span></div><div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center text-[#D4AF37]"><Icon name="flag" className="w-6 h-6" /></div></div>
+                                        <div className="p-8 bg-[#455A64] rounded-[32px] text-center shadow-xl"><span className="text-[10px] font-bold text-[#B2EBF2] uppercase tracking-[0.2em] block mb-2">{simYears}y Forecast</span><span className="text-3xl font-bold text-white leading-none">{simData[simData.length-1].amount.toLocaleString()}万円</span></div>
                                     </div>
                                 </div>
                             </div>
                         )}
 
-                        {/* 4. HISTORY */}
-                        {activeTab === 'history' && (
-                            <div className="space-y-6 animate-pop">
-                                <div className="bg-white p-8 rounded-[40px] shadow-sm border border-gray-100">
-                                    <h3 className="text-sm font-bold flex items-center gap-2 text-[#455A64] mb-6 font-bold uppercase tracking-widest"><Icon name="history" className="text-[#D4AF37]" /> 資産推移の内訳</h3>
-                                    {history.length > 0 ? (
-                                        <div className="h-64 w-full">
-                                            <ResponsiveContainer width="100%" height="100%">
-                                                <AreaChart data={history}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f5f5f5" /><XAxis dataKey="dateLabel" axisLine={false} tickLine={false} tick={{fontSize: 10}} /><YAxis hide /><Tooltip formatter={(val) => (val/10000).toLocaleString() + '万円'} /><Legend iconType="circle" />{Object.entries(ASSET_CATEGORIES).map(([name, info]) => (<Area key={name} type="monotone" dataKey={name} stackId="1" stroke={info.color} fill={info.color} fillOpacity={0.6} name={info.label} />))}</AreaChart>
-                                            </ResponsiveContainer>
-                                        </div>
-                                    ) : (
-                                        <div className="h-40 flex items-center justify-center border-2 border-dashed border-gray-100 rounded-[32px] text-xs text-gray-300 font-bold text-center p-6 leading-relaxed">残高記録をすると<br/>内訳の推移がグラフ化されます</div>
-                                    )}
-                                    <button onClick={recordSnapshot} className="w-full mt-8 bg-[#455A64] text-white py-4 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"><Icon name="camera" className="w-4 h-4" /> 今日の内訳を記録する</button>
+                        {/* --- MODALS --- */}
+                        {isAddingAsset && (
+                            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-6"><div className="bg-white rounded-[40px] p-8 w-full max-w-sm space-y-6 animate-pop shadow-2xl">
+                                <h3 className="font-bold text-[#455A64]">資産を追加</h3>
+                                <input type="text" placeholder="名称" className="w-full p-4 bg-gray-50 rounded-2xl text-sm font-bold" value={newAsset.name} onChange={e => setNewAsset({...newAsset, name: e.target.value})} />
+                                <input type="number" placeholder="金額" className="w-full p-4 bg-gray-50 rounded-2xl text-sm font-bold" value={newAsset.amount} onChange={e => setNewAsset({...newAsset, amount: e.target.value})} />
+                                <div className="grid grid-cols-2 gap-2">
+                                    {Object.keys(ASSET_CATEGORIES).map(cat => (<button key={cat} onClick={() => setNewAsset({...newAsset, category: cat})} className={`py-2.5 rounded-xl text-[9px] font-bold ${newAsset.category === cat ? 'bg-[#455A64] text-white shadow-md' : 'bg-gray-100 text-gray-400'}`}>{ASSET_CATEGORIES[cat].label}</button>))}
                                 </div>
-                                <div className="space-y-3 no-scrollbar">
-                                    {history.slice().reverse().map(record => (
-                                        <div key={record.id} className="bg-white px-5 py-4 rounded-2xl shadow-sm border border-gray-100">
-                                            <div className="flex justify-between items-center mb-2"><span className="text-xs font-bold text-[#455A64]">{record.dateLabel}</span><div className="flex items-center gap-3"><span className="text-sm font-bold text-[#D4AF37]">{formatYen(record.total)}</span><button onClick={() => setConfirmDelete({ isOpen: true, type: 'history', id: record.id, name: `${record.dateLabel}の記録` })} className="text-gray-200 hover:text-red-400"><Icon name="x" className="w-4 h-4" /></button></div></div>
-                                            <div className="flex gap-1 h-1.5 w-full rounded-full overflow-hidden bg-gray-100">{Object.entries(ASSET_CATEGORIES).map(([name, info]) => (<div key={name} style={{ width: `${((record[name] || 0) / record.total) * 100}%`, backgroundColor: info.color }}></div>))}</div>
-                                        </div>
-                                    ))}
+                                <div className="flex gap-3 pt-2"><button onClick={() => setIsAddingAsset(false)} className="flex-1 py-4 text-sm font-bold text-gray-400">閉じる</button><button onClick={addAsset} className="flex-1 py-4 bg-[#D4AF37] text-white rounded-2xl text-sm font-bold shadow-lg">保存</button></div>
+                            </div></div>
+                        )}
+                        {isAddingDiv && (
+                            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-6"><div className="bg-white rounded-[40px] p-8 w-full max-w-sm space-y-6 animate-pop shadow-2xl">
+                                <h3 className="font-bold text-[#455A64]">配当の記録</h3>
+                                <input type="text" placeholder="銘柄名" className="w-full p-4 bg-gray-50 rounded-2xl text-sm font-bold" value={newDiv.name} onChange={e => setNewDiv({...newDiv, name: e.target.value})} />
+                                <input type="number" placeholder="金額" className="w-full p-4 bg-gray-50 rounded-2xl text-sm font-bold" value={newDiv.amount} onChange={e => setNewDiv({...newDiv, amount: e.target.value})} />
+                                <input type="date" className="w-full p-4 bg-gray-50 rounded-2xl text-xs font-bold" value={newDiv.date} onChange={e => setNewDiv({...newDiv, date: e.target.value})} />
+                                <div className="flex gap-3 pt-2"><button onClick={() => setIsAddingDiv(false)} className="flex-1 py-4 text-sm font-bold text-gray-400">閉じる</button><button onClick={addDividend} className="flex-1 py-4 bg-[#D4AF37] text-white rounded-2xl text-sm font-bold shadow-lg">保存</button></div>
+                            </div></div>
+                        )}
+                        {isAddingProject && (
+                            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-6"><div className="bg-white rounded-[40px] p-8 w-full max-w-sm space-y-6 animate-pop shadow-2xl">
+                                <h3 className="font-bold text-[#455A64]">クラファン案件</h3>
+                                <input type="text" placeholder="案件名" className="w-full p-4 bg-gray-50 rounded-2xl text-sm font-bold" value={newProject.name} onChange={e => setNewProject({...newProject, name: e.target.value})} />
+                                <input type="number" placeholder="投資額" className="w-full p-4 bg-gray-50 rounded-2xl text-sm font-bold" value={newProject.amount} onChange={e => setNewProject({...newProject, amount: e.target.value})} />
+                                <div className="grid grid-cols-2 gap-4">
+                                    <input type="number" step="0.1" placeholder="利回り(%)" className="w-full p-4 bg-gray-50 rounded-2xl text-sm font-bold" value={newProject.yield} onChange={e => setNewProject({...newProject, yield: e.target.value})} />
+                                    <input type="date" className="w-full p-4 bg-gray-50 rounded-2xl text-[10px] font-bold" value={newProject.endDate} onChange={e => setNewProject({...newProject, endDate: e.target.value})} />
                                 </div>
-                            </div>
+                                <div className="flex gap-3 pt-2"><button onClick={() => setIsAddingProject(false)} className="flex-1 py-4 text-sm font-bold text-gray-400">閉じる</button><button onClick={addProject} className="flex-1 py-4 bg-[#455A64] text-white rounded-2xl text-sm font-bold shadow-lg">保存</button></div>
+                            </div></div>
                         )}
                     </main>
 
-                    <nav className="fixed bottom-6 left-6 right-6 h-20 glass-nav rounded-[32px] shadow-2xl flex items-center justify-around px-4 z-50">
-                        <button onClick={() => setActiveTab('costs')} className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'costs' ? 'text-[#D4AF37] scale-110' : 'text-gray-300'}`}><Icon name="scissors" /><span className="text-[8px] font-bold uppercase tracking-widest">Costs</span></button>
-                        <button onClick={() => setActiveTab('assets')} className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'assets' ? 'text-[#D4AF37] scale-110' : 'text-gray-300'}`}><Icon name="list" /><span className="text-[8px] font-bold uppercase tracking-widest">Assets</span></button>
-                        <button onClick={() => setActiveTab('strategy')} className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'strategy' ? 'text-[#D4AF37] scale-110' : 'text-gray-300'}`}><Icon name="trending-up" /><span className="text-[8px] font-bold uppercase tracking-widest">Strategy</span></button>
-                        <button onClick={() => setActiveTab('history')} className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'history' ? 'text-[#D4AF37] scale-110' : 'text-gray-300'}`}><Icon name="history" /><span className="text-[8px] font-bold uppercase tracking-widest">History</span></button>
+                    {/* --- NAVIGATION --- */}
+                    <nav className="fixed bottom-6 left-5 right-5 h-20 glass-nav rounded-[32px] shadow-2xl flex items-center justify-around px-2 z-50">
+                        <button onClick={() => setActiveTab('assets')} className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === 'assets' ? 'text-[#D4AF37] scale-110' : 'text-gray-300'}`}><Icon name="list" /><span className="text-[7px] font-bold uppercase tracking-widest">Balance</span></button>
+                        <button onClick={() => setActiveTab('dividend')} className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === 'dividend' ? 'text-[#D4AF37] scale-110' : 'text-gray-300'}`}><Icon name="banknote" /><span className="text-[7px] font-bold uppercase tracking-widest">Dividend</span></button>
+                        <button onClick={() => setActiveTab('projects')} className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === 'projects' ? 'text-[#D4AF37] scale-110' : 'text-gray-300'}`}><Icon name="building-2" /><span className="text-[7px] font-bold uppercase tracking-widest">Projects</span></button>
+                        <button onClick={() => setActiveTab('strategy')} className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === 'strategy' ? 'text-[#D4AF37] scale-110' : 'text-gray-300'}`}><Icon name="trending-up" /><span className="text-[7px] font-bold uppercase tracking-widest">Plan</span></button>
                     </nav>
                 </div>
             );
@@ -489,3 +479,6 @@
     </script>
 </body>
 </html>
+
+`
+

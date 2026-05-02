@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>MGI Ultimate</title>
     
-    <!-- Libraries (安定したCDN) -->
+    <!-- Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prop-types/15.8.1/prop-types.min.js"></script>
@@ -25,19 +25,20 @@
         body { font-family: 'Noto Sans JP', sans-serif; background-color: #F8FAFB; -webkit-tap-highlight-color: transparent; }
         .main-title { font-family: 'Playfair Display', serif; }
         .glass-nav { background: rgba(255, 255, 255, 0.98); backdrop-filter: blur(20px); border-top: 1px solid rgba(212, 175, 55, 0.1); }
-        .animate-pop { animation: pop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        .animate-pop { animation: pop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
         @keyframes pop { from { opacity: 0; transform: scale(0.98) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         input[type="range"] { accent-color: #D4AF37; }
         input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
 </head>
 <body>
     <div id="root">
         <div id="boot-loader" style="height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#F8FAFB;">
             <div style="width:32px; height:32px; border:3px solid #D4AF37; border-top-color:transparent; border-radius:50%; animation:spin 1s linear infinite;"></div>
-            <p style="margin-top:20px; font-size:12px; font-weight:bold; color:#94A3B8; letter-spacing:0.1em;">CONNECTING MGI...</p>
+            <p style="margin-top:20px; font-size:12px; font-weight:bold; color:#94A3B8; letter-spacing:0.1em;">CONNECTING SYSTEM...</p>
         </div>
     </div>
 
@@ -102,13 +103,14 @@
 
                 const [isAdding, setIsAdding] = useState(false);
                 const [editingAsset, setEditingAsset] = useState(null);
-                const [newItem, setNewItem] = useState({ name: '', amount: 0, category: '株式' });
-                const [confirmDelete, setConfirmDelete] = useState({ isOpen: false, id: null, name: '' });
+                const [newItem, setNewItem] = useState({ name: '', amount: '', category: '株式' });
+                const [confirmDelete, setConfirmDelete] = useState({ isOpen: false, type: '', id: null, name: '' });
 
                 useEffect(() => {
                     if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
                     const auth = firebase.auth();
                     const db = firebase.firestore();
+
                     const unsubscribe = auth.onAuthStateChanged((u) => {
                         if (u) {
                             setUser(u);
@@ -124,9 +126,10 @@
                     return () => unsubscribe();
                 }, []);
 
-                const handleNumeric = (val, setter) => {
-                    const num = val === '' ? 0 : Number(val);
-                    setter(num);
+                const handleCleanNumeric = (setter) => (e) => {
+                    const rawVal = e.target.value;
+                    const cleanVal = rawVal === '' ? 0 : Number(rawVal.replace(/^0+/, ''));
+                    setter(cleanVal);
                 };
 
                 const formatYen = (num) => (num / 10000).toLocaleString(undefined, {maximumFractionDigits:1}) + '万';
@@ -158,23 +161,19 @@
                             for (let m = 0; m < 12; m++) currentTotal = (currentTotal + currentSimMonthly) * (1 + monthlyR);
                         }
                         const totalPrincipal = initialCapital + (currentSimMonthly * 12 * i);
-                        res.push({ 
-                            year: i, 
-                            label: `${i}年`, 
-                            amount: Math.round(currentTotal / 10000),
-                            principal: Math.round(totalPrincipal / 10000)
-                        });
+                        res.push({ year: i, label: `${i}年`, amount: Math.round(currentTotal / 10000), principal: Math.round(totalPrincipal / 10000) });
                     }
                     return res;
                 }, [totals, currentSimMonthly, simRate, simYears, simMode, simInitialManual]);
 
                 const handleAdd = async () => {
-                    if(!newItem.name || newItem.amount === 0) return;
+                    if(!newItem.name || !newItem.amount) return;
                     await firebase.firestore().collection('artifacts').doc(MGI_ID).collection('users').doc(user.uid).collection('assets').add({ ...newItem, amount: Number(newItem.amount) });
-                    setIsAdding(false); setNewItem({name:'', amount:0, category:'株式'});
+                    setIsAdding(false); setNewItem({name:'', amount:'', category:'株式'});
                 };
 
                 const handleUpdate = async () => {
+                    if(!editingAsset.name || !editingAsset.amount) return;
                     await firebase.firestore().collection('artifacts').doc(MGI_ID).collection('users').doc(user.uid).collection('assets').doc(editingAsset.id).update({
                         name: editingAsset.name, amount: Number(editingAsset.amount), category: editingAsset.category
                     });
@@ -182,12 +181,18 @@
                 };
 
                 const executeDelete = async () => {
-                    await firebase.firestore().collection('artifacts').doc(MGI_ID).collection('users').doc(user.uid).collection('assets').doc(confirmDelete.id).delete();
-                    setConfirmDelete({ isOpen: false, id: null, name: '' });
+                    const db = firebase.firestore();
+                    const ref = db.collection('artifacts').doc(MGI_ID).collection('users').doc(user.uid);
+                    if (confirmDelete.type === 'asset') {
+                        await ref.collection('assets').doc(confirmDelete.id).delete();
+                    } else if (confirmDelete.type === 'history') {
+                        await ref.collection('history').doc(confirmDelete.id).delete();
+                    }
+                    setConfirmDelete({ isOpen: false, type: '', id: null, name: '' });
                 };
 
                 const updateCost = async (id, type, val) => {
-                    const cleanVal = val === '' ? 0 : Number(val);
+                    const cleanVal = val === '' ? 0 : Number(val.replace(/^0+/, ''));
                     const newCosts = { ...costs, [id]: { ...costs[id], [type]: cleanVal } };
                     setCosts(newCosts);
                     await firebase.firestore().collection('artifacts').doc(MGI_ID).collection('users').doc(user.uid).collection('settings').doc('costs').set(newCosts);
@@ -207,51 +212,66 @@
                 return (
                     <div className="max-w-md mx-auto min-h-screen pb-32 bg-[#F8FAFB] relative animate-pop no-scrollbar">
                         <header className="p-6 pt-10 flex justify-between items-end sticky top-0 bg-[#F8FAFB]/95 backdrop-blur-md z-40">
-                            <div><h1 className="text-2xl font-bold text-[#455A64] main-title leading-tight">Money Grow IG</h1><div className="flex items-center gap-1 mt-1 text-emerald-500"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div><span className="text-[8px] font-bold uppercase tracking-widest">Active Safe</span></div></div>
+                            <div><h1 className="text-2xl font-bold text-[#455A64] main-title leading-tight">Money Grow IG</h1><div className="flex items-center gap-1 mt-1 text-emerald-500"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div><span className="text-[8px] font-bold uppercase tracking-widest leading-none">Active Safe</span></div></div>
                             <div className="text-right"><p className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter">Net Wealth</p><p className="text-xl font-bold text-[#455A64]">{formatYen(totals.total)}</p></div>
                         </header>
 
                         <main className="px-5 mt-4 space-y-6">
-                            {/* 1. COSTS (節約) */}
+                            {/* 1. COSTS */}
                             {activeTab === 'costs' && (
                                 <div className="space-y-4 animate-pop">
                                     <div className="bg-[#455A64] p-8 rounded-[40px] text-white shadow-xl flex items-center gap-5">
                                         <div className="p-4 bg-[#D4AF37] rounded-2xl shadow-lg"><Icon name="scissors" /></div>
-                                        <div><p className="text-[10px] font-bold opacity-40 uppercase tracking-widest">月々の投資捻出額</p><p className="text-3xl font-bold text-[#B2EBF2]">{monthlySavingTotal.toLocaleString()}円</p></div>
+                                        <div><p className="text-[10px] font-bold opacity-40 uppercase tracking-widest leading-none mb-1">月々の投資捻出額</p><p className="text-3xl font-bold text-[#B2EBF2]">{monthlySavingTotal.toLocaleString()}円</p></div>
                                     </div>
                                     <div className="space-y-3">{COST_ITEMS.map(item => (<div key={item.id} className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100 space-y-4"><div className="flex items-center gap-3"><Icon name={item.icon} className="text-[#455A64] w-4 h-4" /><h4 className="text-sm font-bold text-[#455A64]">{item.label}</h4></div><div className="grid grid-cols-2 gap-3"><div><label className="text-[8px] text-gray-300 font-bold uppercase ml-1 tracking-widest">現状</label><input type="number" inputmode="numeric" placeholder="0" className="w-full bg-gray-50 p-3 rounded-xl text-xs outline-none font-bold" value={costs[item.id]?.current || ''} onFocus={e => e.target.select()} onChange={e=>updateCost(item.id, 'current', e.target.value)} /></div><div><label className="text-[8px] text-[#D4AF37] font-bold uppercase ml-1 tracking-widest">見直し</label><input type="number" inputmode="numeric" placeholder="0" className="w-full bg-[#E0F2F1] p-3 rounded-xl text-xs outline-none font-bold" value={costs[item.id]?.after || ''} onFocus={e => e.target.select()} onChange={e=>updateCost(item.id, 'after', e.target.value)} /></div></div></div>))}</div>
                                 </div>
                             )}
 
-                            {/* 2. BALANCE (資産) */}
+                            {/* 2. BALANCE (％表示強化) */}
                             {activeTab === 'assets' && (
                                 <div className="space-y-6 animate-pop">
                                     <div className="bg-white p-6 rounded-[40px] shadow-sm border border-gray-100 flex items-center gap-6">
                                         <div className="w-32 h-32 shrink-0 flex items-center justify-center"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={Object.keys(ASSET_CATEGORIES).map(cat=>({name:cat, value:totals[cat]||0}))} innerRadius={25} outerRadius={38} paddingAngle={0} dataKey="value" stroke="none">{Object.keys(ASSET_CATEGORIES).map((cat, i) => <Cell key={i} fill={ASSET_CATEGORIES[cat].color} />)}</Pie></PieChart></ResponsiveContainer></div>
-                                        <div className="flex-1 grid grid-cols-1 gap-y-1">{Object.entries(ASSET_CATEGORIES).map(([name, info]) => (totals[name] > 0 && (<div key={name} className="flex items-center justify-between"><div className="flex items-center gap-1.5 truncate"><div className="w-2 h-2 rounded-full shrink-0" style={{backgroundColor: info.color}}></div><span className="text-[9px] font-bold text-gray-500 uppercase truncate leading-none">{info.label}</span></div><div className="text-right leading-none"><span className="text-[10px] font-bold text-[#455A64]">{formatYen(totals[name])}</span><span className="text-[7px] text-gray-300 ml-1">({Math.round(totals[name]/totals.total*100)}%)</span></div></div>)))}</div>
+                                        <div className="flex-1 grid grid-cols-1 gap-y-1">
+                                            {Object.entries(ASSET_CATEGORIES).map(([name, info]) => (
+                                                totals[name] > 0 && (
+                                                    <div key={name} className="flex items-center justify-between">
+                                                        <div className="flex items-center gap-1.5 truncate">
+                                                            <div className="w-2 h-2 rounded-full shrink-0" style={{backgroundColor: info.color}}></div>
+                                                            <span className="text-[10px] font-bold text-gray-500 uppercase truncate leading-none">{info.label}</span>
+                                                        </div>
+                                                        <div className="text-right leading-none">
+                                                            <span className="text-[11px] font-bold text-[#455A64]">{formatYen(totals[name])}</span>
+                                                            <span className="text-[10px] text-[#455A64] font-bold ml-1">({Math.round(totals[name]/totals.total*100)}%)</span>
+                                                        </div>
+                                                    </div>
+                                                )
+                                            ))}
+                                        </div>
                                     </div>
                                     <div className="space-y-2">
                                         <div className="flex justify-between items-center px-1 mb-2"><h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">資産明細</h3><button onClick={()=>setIsAdding(true)} className="text-[10px] font-bold text-[#D4AF37] tracking-widest uppercase">+ ADD</button></div>
-                                        {assets.map(a => (<div key={a.id} className="bg-white p-4 rounded-3xl flex justify-between items-center shadow-sm border border-gray-50 active:scale-95 transition-all"><div className="flex items-center gap-3"><div className="p-2.5 rounded-2xl" style={{ backgroundColor: ASSET_CATEGORIES[a.category].color + '15', color: ASSET_CATEGORIES[a.category].color }}><Icon name={ASSET_CATEGORIES[a.category].icon} /></div><div><div className="text-sm font-bold text-[#455A64] truncate max-w-[120px]">{a.name}</div><div className="text-[9px] text-gray-400 font-bold uppercase">{a.category}</div></div></div><div className="flex items-center gap-3"><span className="font-bold text-[#455A64] text-sm">{formatYen(a.amount)}</span><div className="flex gap-1 pl-1"><button onClick={()=>setEditingAsset(a)} className="text-gray-300 p-1"><Icon name="edit-2" className="w-3.5 h-3.5" /></button><button onClick={()=>setConfirmDelete({ isOpen: true, id: a.id, name: a.name })} className="text-gray-300 p-1"><Icon name="trash-2" className="w-3.5 h-3.5" /></button></div></div></div>))}
+                                        {assets.map(a => (<div key={a.id} className="bg-white p-4 rounded-3xl flex justify-between items-center shadow-sm border border-gray-50 active:scale-95 transition-all"><div className="flex items-center gap-3"><div className="p-2.5 rounded-2xl" style={{ backgroundColor: ASSET_CATEGORIES[a.category].color + '15', color: ASSET_CATEGORIES[a.category].color }}><Icon name={ASSET_CATEGORIES[a.category].icon} /></div><div><div className="text-sm font-bold text-[#455A64] truncate max-w-[120px]">{a.name}</div><div className="text-[9px] text-gray-400 font-bold uppercase">{a.category}</div></div></div><div className="flex items-center gap-3"><span className="font-bold text-[#455A64] text-sm">{formatYen(a.amount)}</span><div className="flex gap-1 pl-1"><button onClick={()=>setEditingAsset(a)} className="text-gray-300 p-1"><Icon name="edit-2" className="w-3.5 h-3.5" /></button><button onClick={()=>setConfirmDelete({ isOpen: true, type: 'asset', id: a.id, name: a.name })} className="text-gray-300 p-1"><Icon name="trash-2" className="w-3.5 h-3.5" /></button></div></div></div>))}
                                         <button onClick={()=>setIsAdding(true)} className="w-full py-5 rounded-3xl border-2 border-dashed border-gray-200 text-gray-300 text-[10px] font-bold uppercase flex items-center justify-center gap-2 mt-4">+ 資産を登録</button>
                                     </div>
                                 </div>
                             )}
 
-                            {/* 3. PLAN (予測) */}
+                            {/* 3. PLAN */}
                             {activeTab === 'plan' && (
                                 <div className="space-y-6 animate-pop pb-10">
                                     <div className="bg-white p-8 rounded-[40px] shadow-sm border border-gray-100 space-y-8">
-                                        <h3 className="text-xs font-bold text-[#455A64] uppercase tracking-widest flex items-center gap-2"><Icon name="trending-up" className="text-[#D4AF37]" /> 資産推移予測</h3>
-                                        <div className="flex p-1.5 bg-[#455A64]/5 rounded-[24px]"><button onClick={() => setSimMode('current')} className={`flex-1 py-3 rounded-2xl transition-all ${simMode === 'current' ? 'bg-[#455A64] text-white shadow-lg' : 'text-gray-400'}`}><p className="text-[11px] font-bold leading-none uppercase">Existing</p><p className="text-[8px] mt-1 opacity-70">運用資産ベース</p></button><button onClick={() => setSimMode('zero')} className={`flex-1 py-3 rounded-2xl transition-all ${simMode === 'zero' ? 'bg-[#455A64] text-white shadow-lg' : 'text-gray-400'}`}><p className="text-[11px] font-bold leading-none uppercase">Fresh Start</p><p className="text-[8px] mt-1 opacity-70">ゼロベース計画</p></button></div>
+                                        <h3 className="text-xs font-bold text-[#455A64] uppercase tracking-widest flex items-center gap-2 leading-none"><Icon name="trending-up" className="text-[#D4AF37]" /> 資産推移予測</h3>
+                                        <div className="flex p-1.5 bg-[#455A64]/5 rounded-[24px]"><button onClick={() => setSimMode('current')} className={`flex-1 py-3 rounded-2xl transition-all ${simMode === 'current' ? 'bg-[#455A64] text-white shadow-lg' : 'text-gray-400'}`}><p className="text-[11px] font-bold leading-none uppercase">Existing</p><p className="text-[8px] mt-1 opacity-70 leading-none">運用資産ベース</p></button><button onClick={() => setSimMode('zero')} className={`flex-1 py-3 rounded-2xl transition-all ${simMode === 'zero' ? 'bg-[#455A64] text-white shadow-lg' : 'text-gray-400'}`}><p className="text-[11px] font-bold leading-none uppercase">Fresh Start</p><p className="text-[8px] mt-1 opacity-70 leading-none">ゼロベース計画</p></button></div>
                                         
                                         <div className="relative h-48 w-full">
                                             {hoveredData ? (
                                                 <div className="absolute -top-4 left-0 right-0 text-center animate-pop z-10 bg-white/80 backdrop-blur-sm py-1 rounded-xl">
                                                     <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">{hoveredData.label}の予測</p>
                                                     <div className="flex justify-center items-baseline gap-4">
-                                                        <div><span className="text-[8px] block text-gray-400">総額</span><span className="text-xl font-bold text-[#D4AF37]">{hoveredData.amount.toLocaleString()}万</span></div>
-                                                        <div><span className="text-[8px] block text-gray-400">元本</span><span className="text-sm font-bold text-[#455A64]">{hoveredData.principal.toLocaleString()}万</span></div>
+                                                        <div><span className="text-[8px] block text-gray-400 font-bold uppercase">Total</span><span className="text-xl font-bold text-[#D4AF37]">{hoveredData.amount.toLocaleString()}万</span></div>
+                                                        <div><span className="text-[8px] block text-gray-400 font-bold uppercase">Principal</span><span className="text-sm font-bold text-[#455A64]">{hoveredData.principal.toLocaleString()}万</span></div>
                                                     </div>
                                                 </div>
                                             ) : (
@@ -273,25 +293,39 @@
 
                                         <div className="space-y-6 pt-4 border-t border-gray-50">
                                             {simMode === 'zero' && (
-                                                <div className="space-y-3 animate-pop"><div className="flex justify-between items-center"><label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none">開始時の元本</label><input type="number" inputmode="numeric" className="text-right font-bold text-[#455A64] bg-gray-50 px-3 py-1 rounded-xl text-sm w-28 outline-none" value={simInitialManual === 0 ? '' : simInitialManual} onFocus={e => e.target.select()} onChange={e => handleNumeric(e.target.value, setSimInitialManual)} /></div><input type="range" min="0" max="50000000" step="100000" value={simInitialManual} onChange={e=>setSimInitialManual(Number(e.target.value))} className="w-full" /></div>
+                                                <div className="space-y-3 animate-pop"><div className="flex justify-between items-center"><label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none">開始時の元本</label><input type="number" inputmode="numeric" className="text-right font-bold text-[#455A64] bg-gray-50 px-3 py-1 rounded-xl text-sm w-28 outline-none" value={simInitialManual || ''} onFocus={e => e.target.select()} onChange={handleCleanNumeric(setSimInitialManual)} /></div><input type="range" min="0" max="50000000" step="100000" value={simInitialManual} onChange={e=>setSimInitialManual(Number(e.target.value))} className="w-full" /></div>
                                             )}
-                                            <div className="space-y-3"><div className="flex justify-between items-center"><label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none">月々の積立額</label><input type="number" inputmode="numeric" className="text-right font-bold text-[#D4AF37] bg-gray-50 px-3 py-1 rounded-xl text-sm w-28 outline-none" value={currentSimMonthly === 0 ? '' : currentSimMonthly} onFocus={e => e.target.select()} onChange={e => handleNumeric(e.target.value, setSimMonthlyManual)} /></div><input type="range" min="0" max="1000000" step="5000" value={currentSimMonthly} onChange={e=>setSimMonthlyManual(Number(e.target.value))} className="w-full h-1.5 bg-gray-100 rounded-lg appearance-none cursor-pointer" /></div>
+                                            <div className="space-y-3"><div className="flex justify-between items-center"><label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none">月々の積立額</label><input type="number" inputmode="numeric" className="text-right font-bold text-[#D4AF37] bg-gray-50 px-3 py-1 rounded-xl text-sm w-28 outline-none" value={currentSimMonthly || ''} onFocus={e => e.target.select()} onChange={handleCleanNumeric(setSimMonthlyManual)} /></div><input type="range" min="0" max="1000000" step="5000" value={currentSimMonthly} onChange={e=>setSimMonthlyManual(Number(e.target.value))} className="w-full h-1.5 bg-gray-100 rounded-lg appearance-none cursor-pointer" /></div>
                                             <div className="grid grid-cols-2 gap-6">
-                                                <div className="space-y-2"><label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none">想定年利(%)</label><input type="number" inputmode="decimal" step="0.1" className="w-full bg-gray-50 p-3 rounded-xl text-sm font-bold text-[#455A64] outline-none" value={simRate === 0 ? '' : simRate} onFocus={e => e.target.select()} onChange={e => handleNumeric(e.target.value, setSimRate)} /></div>
-                                                <div className="space-y-2"><label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none">期間(年)</label><input type="number" inputmode="numeric" className="w-full bg-gray-50 p-3 rounded-xl text-sm font-bold text-[#455A64] outline-none" value={simYears === 0 ? '' : simYears} onFocus={e => e.target.select()} onChange={e => handleNumeric(e.target.value, setSimYears)} /></div>
+                                                <div className="space-y-2"><label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none">想定年利(%)</label><input type="number" inputmode="decimal" step="0.1" className="w-full bg-gray-50 p-3 rounded-xl text-sm font-bold text-[#455A64] outline-none" value={simRate || ''} onFocus={e => e.target.select()} onChange={handleCleanNumeric(setSimRate)} /></div>
+                                                <div className="space-y-2"><label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none">期間(年)</label><input type="number" inputmode="numeric" className="w-full bg-gray-50 p-3 rounded-xl text-sm font-bold text-[#455A64] outline-none" value={simYears || ''} onFocus={e => e.target.select()} onChange={handleCleanNumeric(setSimYears)} /></div>
                                             </div>
-                                            <div className="p-8 bg-[#455A64] rounded-[32px] text-center shadow-xl"><span className="text-[10px] font-bold text-[#B2EBF2] uppercase block mb-1 tracking-widest">{simYears}年後の着地予測</span><span className="text-3xl font-bold text-white leading-none tracking-tighter">{simData[simData.length-1].amount.toLocaleString()}万円</span></div>
+                                            <div className="p-8 bg-[#455A64] rounded-[32px] text-center shadow-xl"><span className="text-[10px] font-bold text-[#B2EBF2] uppercase block mb-1 tracking-widest leading-none">最終着地予測</span><span className="text-3xl font-bold text-white leading-none tracking-tighter">{simData[simData.length-1].amount.toLocaleString()}万円</span></div>
                                         </div>
                                     </div>
                                 </div>
                             )}
 
-                            {/* 4. HISTORY (履歴) */}
+                            {/* 4. HISTORY (個別削除対応版) */}
                             {activeTab === 'history' && (
                                 <div className="space-y-6 animate-pop">
                                     <div className="bg-white p-8 rounded-[40px] shadow-sm border border-gray-100 text-center">
-                                        <div className="flex justify-between items-center mb-8"><h3 className="text-xs font-bold text-[#455A64] uppercase tracking-widest flex items-center gap-2"><Icon name="history" /> 推移の記録</h3><button onClick={recordHistory} className="p-3 bg-[#455A64] text-white rounded-full shadow-lg active:scale-90 transition-all"><Icon name="camera" /></button></div>
-                                        {history.length > 0 ? (<div className="h-64 w-full"><ResponsiveContainer width="100%" height="100%"><AreaChart data={history}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f5f5f5" /><XAxis dataKey="dateLabel" axisLine={false} tickLine={false} tick={{fontSize: 10}} /><Tooltip formatter={(val) => (val/10000).toLocaleString() + '万'} /><Legend iconType="circle" />{Object.entries(ASSET_CATEGORIES).map(([name, info]) => (<Area key={name} type="monotone" dataKey={name} stackId="1" stroke={info.color} fill={info.color} fillOpacity={0.6} name={info.label} />))}</AreaChart></ResponsiveContainer></div>) : <div className="h-40 flex items-center justify-center border-2 border-dashed rounded-[32px] text-gray-300 text-[10px] uppercase font-bold tracking-widest">まだ記録がありません</div>}
+                                        <div className="flex justify-between items-center mb-8"><h3 className="text-xs font-bold text-[#455A64] uppercase tracking-widest flex items-center gap-2 leading-none"><Icon name="history" /> 推移の記録</h3><button onClick={recordHistory} className="p-3 bg-[#455A64] text-white rounded-full shadow-lg active:scale-90 transition-all"><Icon name="camera" /></button></div>
+                                        {history.length > 0 ? (<div className="h-64 w-full"><ResponsiveContainer width="100%" height="100%"><AreaChart data={history}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f5f5f5" /><XAxis dataKey="dateLabel" axisLine={false} tickLine={false} tick={{fontSize: 10}} /><Tooltip formatter={(val) => (val/10000).toLocaleString() + '万'} /><Legend iconType="circle" />{Object.entries(ASSET_CATEGORIES).map(([name, info]) => (<Area key={name} type="monotone" dataKey={name} stackId="1" stroke={info.color} fill={info.color} fillOpacity={0.6} name={info.label} />))}</AreaChart></ResponsiveContainer></div>) : <div className="h-40 flex items-center justify-center border-2 border-dashed rounded-[32px] text-gray-300 text-[10px] uppercase font-bold tracking-widest font-bold">まだ記録がありません</div>}
+                                    </div>
+                                    <div className="space-y-3">
+                                        <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1">過去のログ</h3>
+                                        {history.slice().reverse().map(record => (
+                                            <div key={record.id} className="bg-white px-5 py-4 rounded-3xl flex justify-between items-center shadow-sm border border-gray-50">
+                                                <div>
+                                                    <span className="text-[10px] font-bold text-gray-400">{record.dateLabel}</span>
+                                                    <div className="text-sm font-bold text-[#455A64]">{formatYen(record.total)}</div>
+                                                </div>
+                                                <button onClick={() => setConfirmDelete({ isOpen: true, type: 'history', id: record.id, name: `${record.dateLabel}の記録` })} className="text-gray-200 hover:text-red-400 p-2">
+                                                    <Icon name="trash-2" className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                        ))}
                                     </div>
                                 </div>
                             )}
@@ -304,15 +338,15 @@
                             <button onClick={()=>setActiveTab('history')} className={`flex flex-col items-center gap-1 transition-all ${activeTab==='history'?'text-[#D4AF37] scale-110':'text-gray-300'}`}><Icon name="history" /><span className="text-[7px] font-bold uppercase tracking-widest">History</span></button>
                         </nav>
 
-                        {/* Modals */}
+                        {/* モーダル群 */}
                         {isAdding && (
                             <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-6 animate-pop">
-                                <div className="bg-white rounded-[40px] p-8 w-full max-w-sm space-y-4 shadow-2xl animate-pop"><h3 className="font-bold text-[#455A64] text-center tracking-widest text-sm uppercase">Add Asset</h3><input type="text" placeholder="名称" className="w-full p-4 bg-gray-50 rounded-2xl text-sm font-bold outline-none focus:ring-2 ring-[#D4AF37]/10" value={newItem.name} onChange={e=>setNewItem({...newItem, name: e.target.value})} /><input type="number" inputmode="numeric" placeholder="金額" className="w-full p-4 bg-gray-50 rounded-2xl text-sm font-bold outline-none focus:ring-2 ring-[#D4AF37]/10" value={newItem.amount || ''} onFocus={e => e.target.select()} onChange={e => handleNumeric(e.target.value, (v) => setNewItem({...newItem, amount: v}))} /><div className="grid grid-cols-2 gap-2">{Object.keys(ASSET_CATEGORIES).map(cat => (<button key={cat} onClick={()=>setNewItem({...newItem, category:cat})} className={`py-2.5 rounded-xl text-[9px] font-bold ${newItem.category===cat ? 'bg-[#455A64] text-white shadow-md' : 'bg-gray-100 text-gray-400'}`}>{ASSET_CATEGORIES[cat].label}</button>))}</div><div className="flex gap-2 pt-2"><button onClick={()=>setIsAdding(false)} className="flex-1 text-xs text-gray-400 font-bold uppercase">戻る</button><button onClick={handleAdd} className="flex-1 py-4 bg-[#D4AF37] text-white rounded-2xl text-sm font-bold shadow-lg">保存</button></div></div>
+                                <div className="bg-white rounded-[40px] p-8 w-full max-w-sm space-y-4 shadow-2xl animate-pop"><h3 className="font-bold text-[#455A64] text-center tracking-widest text-sm uppercase">Add Asset</h3><input type="text" placeholder="名称" className="w-full p-4 bg-gray-50 rounded-2xl text-sm font-bold outline-none focus:ring-2 ring-[#D4AF37]/10" value={newItem.name} onChange={e=>setNewItem({...newItem, name: e.target.value})} /><input type="number" inputmode="numeric" placeholder="金額" className="w-full p-4 bg-gray-50 rounded-2xl text-sm font-bold outline-none focus:ring-2 ring-[#D4AF37]/10" value={newItem.amount || ''} onFocus={e => e.target.select()} onChange={e => handleCleanNumeric((v) => setNewItem({...newItem, amount: v}))} /><div className="grid grid-cols-2 gap-2">{Object.keys(ASSET_CATEGORIES).map(cat => (<button key={cat} onClick={()=>setNewItem({...newItem, category:cat})} className={`py-2.5 rounded-xl text-[9px] font-bold ${newItem.category===cat ? 'bg-[#455A64] text-white shadow-md' : 'bg-gray-100 text-gray-400'}`}>{ASSET_CATEGORIES[cat].label}</button>))}</div><div className="flex gap-2 pt-2"><button onClick={()=>setIsAdding(false)} className="flex-1 text-xs text-gray-400 font-bold uppercase">戻る</button><button onClick={handleAdd} className="flex-1 py-4 bg-[#D4AF37] text-white rounded-2xl text-sm font-bold shadow-lg">保存</button></div></div>
                             </div>
                         )}
                         {editingAsset && (
                             <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-6 animate-pop">
-                                <div className="bg-white rounded-[40px] p-8 w-full max-w-sm space-y-4 shadow-2xl animate-pop"><h3 className="font-bold text-[#455A64] text-center tracking-widest text-sm uppercase">Edit Asset</h3><input type="text" className="w-full p-4 bg-gray-50 rounded-2xl text-sm font-bold outline-none focus:ring-2 ring-[#D4AF37]/10" value={editingAsset.name} onChange={e=>setEditingAsset({...editingAsset, name: e.target.value})} /><input type="number" inputmode="numeric" className="w-full p-4 bg-gray-50 rounded-2xl text-sm font-bold outline-none focus:ring-2 ring-[#D4AF37]/10" value={editingAsset.amount || ''} onFocus={e => e.target.select()} onChange={e => handleNumeric(e.target.value, (v) => setEditingAsset({...editingAsset, amount: v}))} /><div className="grid grid-cols-2 gap-2">{Object.keys(ASSET_CATEGORIES).map(cat => (<button key={cat} onClick={()=>setEditingAsset({...editingAsset, category:cat})} className={`py-2.5 rounded-xl text-[9px] font-bold ${editingAsset.category===cat ? 'bg-[#455A64] text-white shadow-md' : 'bg-gray-100 text-gray-400'}`}>{ASSET_CATEGORIES[cat].label}</button>))}</div><div className="flex gap-2 pt-2"><button onClick={()=>setEditingAsset(null)} className="flex-1 text-xs text-gray-400 font-bold uppercase">戻る</button><button onClick={handleUpdate} className="flex-1 py-4 bg-[#D4AF37] text-white rounded-2xl text-sm font-bold shadow-lg">更新</button></div></div>
+                                <div className="bg-white rounded-[40px] p-8 w-full max-w-sm space-y-4 shadow-2xl animate-pop"><h3 className="font-bold text-[#455A64] text-center tracking-widest text-sm uppercase">Edit Asset</h3><input type="text" className="w-full p-4 bg-gray-50 rounded-2xl text-sm font-bold outline-none focus:ring-2 ring-[#D4AF37]/10" value={editingAsset.name} onChange={e=>setEditingAsset({...editingAsset, name: e.target.value})} /><input type="number" inputmode="numeric" className="w-full p-4 bg-gray-50 rounded-2xl text-sm font-bold outline-none focus:ring-2 ring-[#D4AF37]/10" value={editingAsset.amount || ''} onFocus={e => e.target.select()} onChange={e => handleCleanNumeric((v) => setEditingAsset({...editingAsset, amount: v}))} /><div className="grid grid-cols-2 gap-2">{Object.keys(ASSET_CATEGORIES).map(cat => (<button key={cat} onClick={()=>setEditingAsset({...editingAsset, category:cat})} className={`py-2.5 rounded-xl text-[9px] font-bold ${editingAsset.category===cat ? 'bg-[#455A64] text-white shadow-md' : 'bg-gray-100 text-gray-400'}`}>{ASSET_CATEGORIES[cat].label}</button>))}</div><div className="flex gap-2 pt-2"><button onClick={()=>setEditingAsset(null)} className="flex-1 text-xs text-gray-400 font-bold uppercase">戻る</button><button onClick={handleUpdate} className="flex-1 py-4 bg-[#455A64] text-white rounded-2xl text-sm font-bold shadow-lg">更新</button></div></div>
                             </div>
                         )}
                         {confirmDelete.isOpen && (

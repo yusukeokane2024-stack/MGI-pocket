@@ -5,418 +5,186 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>MGI Ultimate</title>
     
-    <!-- 1. Libraries (React, Recharts, Tailwind, Lucide) -->
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- 部品の読み込み（cdn.jsdelivr.net を使用して安定性を最大化） -->
+    <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/recharts@2.12.7/lib/Recharts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.23.5/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     
-    <!-- 2. Firebase SDK (CDN version for higher stability) -->
+    <!-- Firebase (最も安定する旧形式) -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,700&family=Noto+Sans+JP:wght@300;400;700&display=swap" rel="stylesheet">
+    
     <style>
-        body { font-family: 'Noto Sans JP', sans-serif; background-color: #F8FAFB; -webkit-tap-highlight-color: transparent; overflow-x: hidden; }
+        body { font-family: 'Noto Sans JP', sans-serif; background-color: #F8FAFB; -webkit-tap-highlight-color: transparent; }
         .main-title { font-family: 'Playfair Display', serif; }
-        .glass-nav { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(20px); border-top: 1px solid rgba(212, 175, 55, 0.1); }
-        .animate-pop { animation: pop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
-        @keyframes pop { from { opacity: 0; transform: scale(0.98) translateY(5px); } to { opacity: 1; transform: scale(1) translateY(0); } }
-        input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        input[type="range"] { accent-color: #D4AF37; }
+        .glass-nav { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(20px); border-top: 1px solid rgba(212, 175, 55, 0.1); }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .animate-pop { animation: pop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        @keyframes pop { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
     </style>
 </head>
 <body>
-    <div id="root"></div>
+    <div id="root">
+        <div id="loader" style="height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#F8FAFB; color:#455A64;">
+            <div style="width:32px; height:32px; border:3px solid #D4AF37; border-top-color:transparent; border-radius:50%; animation:spin 1s linear infinite;"></div>
+            <p id="st-msg" style="margin-top:16px; font-size:12px; font-weight:bold; letter-spacing:0.1em;">CONNECTING SYSTEM...</p>
+        </div>
+    </div>
 
     <script type="text/babel">
-        const { useState, useMemo, useEffect } = React;
-        const { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend } = Recharts;
+        // 起動チェック関数
+        const initApp = () => {
+            // Rechartsがなくてもアプリ自体は開くようにする
+            if (!window.React || !window.lucide) {
+                setTimeout(initApp, 500);
+                return;
+            }
 
-        // --- Firebase Config & App ID ---
-        const firebaseConfig = { 
-            apiKey: "AIzaSyBmq8Y8LiGU_HGmyiCFEjt8rN-enPn5zzw", 
-            authDomain: "mgi-pocket.firebaseapp.com",
-            projectId: "mgi-pocket",
-            storageBucket: "mgi-pocket.firebasestorage.app",
-            messagingSenderId: "461429650252",
-            appId: "1:461429650252:web:2876c556e4f2bbfe5fd5e9"
-        };
-        const MGI_APP_ID = 'mgi-ultimate-v1';
+            const { useState, useMemo, useEffect } = React;
+            // グラフ部品があるか確認
+            const Re = window.Recharts || null;
 
-        const ASSET_CATEGORIES = {
-            '生活防衛資金': { color: '#455A64', label: '防衛', icon: 'wallet' },
-            '現金': { color: '#B2EBF2', label: '現金', icon: 'banknote' },
-            '株式': { color: '#D4AF37', label: '株式', icon: 'trending-up' },
-            '老後資金': { color: '#5C6BC0', label: '老後', icon: 'coffee' },
-            '不動産': { color: '#FF7043', label: '不動産', icon: 'building-2' },
-            '暗号資産': { color: '#9575CD', label: '暗号', icon: 'bitcoin' },
-            'ゴールド': { color: '#FDD835', label: '金', icon: 'gem' }
-        };
+            const firebaseConfig = { 
+                apiKey: "AIzaSyBmq8Y8LiGU_HGmyiCFEjt8rN-enPn5zzw", 
+                authDomain: "mgi-pocket.firebaseapp.com",
+                projectId: "mgi-pocket",
+                storageBucket: "mgi-pocket.firebasestorage.app",
+                messagingSenderId: "461429650252",
+                appId: "1:461429650252:web:2876c556e4f2bbfe5fd5e9"
+            };
+            const MGI_ID = 'mgi-ultimate-v1';
 
-        const Icon = ({ name, className = "w-5 h-5" }) => {
-            useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name]);
-            return <i data-lucide={name} className={className}></i>;
-        };
+            const ASSET_CATEGORIES = {
+                '生活防衛資金': { color: '#455A64', label: '防衛', icon: 'wallet' },
+                '現金': { color: '#B2EBF2', label: '現金', icon: 'banknote' },
+                '株式': { color: '#D4AF37', label: '株式', icon: 'trending-up' },
+                '老後資金': { color: '#5C6BC0', label: '老後', icon: 'coffee' },
+                '不動産': { color: '#FF7043', label: '不動産', icon: 'building-2' },
+                '暗号資産': { color: '#9575CD', label: '暗号', icon: 'bitcoin' },
+                'ゴールド': { color: '#FDD835', label: '金', icon: 'gem' }
+            };
 
-        const App = () => {
-            const [user, setUser] = useState(null);
-            const [activeTab, setActiveTab] = useState('assets');
-            const [loading, setLoading] = useState(true);
-            const [syncing, setSyncing] = useState(false);
-            
-            const [assets, setAssets] = useState([]);
-            const [projects, setProjects] = useState([]);
-            const [dividends, setDividends] = useState([]);
-            const [history, setHistory] = useState([]);
+            const Icon = ({ name, className = "w-5 h-5" }) => {
+                useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name]);
+                return <i data-lucide={name} className={className}></i>;
+            };
 
-            const [simRate, setSimRate] = useState(7);
-            const [simYears, setSimYears] = useState(30);
+            const App = () => {
+                const [user, setUser] = useState(null);
+                const [activeTab, setActiveTab] = useState('assets');
+                const [loading, setLoading] = useState(true);
+                const [assets, setAssets] = useState([]);
 
-            const [isAddingAsset, setIsAddingAsset] = useState(false);
-            const [newAsset, setNewAsset] = useState({ name: '', amount: '', category: '株式' });
-            const [isAddingProject, setIsAddingProject] = useState(false);
-            const [newProject, setNewProject] = useState({ name: '', amount: '', yield: '', endDate: '' });
-            const [isAddingDiv, setIsAddingDiv] = useState(false);
-            const [newDiv, setNewDiv] = useState({ name: '', amount: '', date: new Date().toISOString().split('T')[0] });
-            const [confirmDelete, setConfirmDelete] = useState({ isOpen: false, type: '', id: null, name: '' });
+                useEffect(() => {
+                    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+                    const auth = firebase.auth();
+                    const db = firebase.firestore();
 
-            // Firebase Boot
-            useEffect(() => {
-                if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
-                const auth = firebase.auth();
-                const db = firebase.firestore();
+                    return auth.onAuthStateChanged((u) => {
+                        if (u) {
+                            setUser(u);
+                            db.collection('artifacts').doc(MGI_ID).collection('users').doc(u.uid).collection('assets')
+                              .onSnapshot(s => {
+                                  setAssets(s.docs.map(d => ({id: d.id, ...d.data()})));
+                                  setLoading(false);
+                                  const l = document.getElementById('loader');
+                                  if (l) l.style.display = 'none';
+                              });
+                        } else {
+                            auth.signInAnonymously();
+                        }
+                    });
+                }, []);
 
-                const unsubscribe = auth.onAuthStateChanged((u) => {
-                    if (u) {
-                        setUser(u);
-                        // Data Listeners
-                        const base = db.collection('artifacts').doc(MGI_APP_ID).collection('users').doc(u.uid);
-                        
-                        base.collection('assets').onSnapshot(s => setAssets(s.docs.map(d => ({id: d.id, ...d.data()}))), () => setLoading(false));
-                        base.collection('projects').onSnapshot(s => setProjects(s.docs.map(d => ({id: d.id, ...d.data()}))));
-                        base.collection('dividends').onSnapshot(s => {
-                            const data = s.docs.map(d => ({id: d.id, ...d.data()}));
-                            data.sort((a,b) => new Date(a.date) - new Date(b.date));
-                            setDividends(data);
-                        });
-                        base.collection('history').onSnapshot(s => {
-                            const data = s.docs.map(d => ({id: d.id, ...d.data()}));
-                            data.sort((a,b) => a.timestamp - b.timestamp);
-                            setHistory(data);
-                        });
-                        setLoading(false);
-                    } else {
-                        auth.signInAnonymously();
-                    }
-                });
-                return () => unsubscribe();
-            }, []);
-
-            // Calculations
-            const formatYen = (num) => (num / 10000).toLocaleString(undefined, {maximumFractionDigits:1}) + '万';
-            
-            const totals = useMemo(() => {
-                return assets.reduce((acc, curr) => {
+                const totals = useMemo(() => assets.reduce((acc, curr) => {
                     const amt = Number(curr.amount) || 0;
                     acc[curr.category] = (acc[curr.category] || 0) + amt;
                     acc.total += amt;
                     return acc;
-                }, { total: 0 });
-            }, [assets]);
+                }, { total: 0 }), [assets]);
 
-            const growthBase = useMemo(() => {
-                const targets = ['株式', '老後資金', '不動産', '暗号資産', 'ゴールド'];
-                return targets.reduce((acc, cat) => acc + (totals[cat] || 0), 0);
-            }, [totals]);
+                if (loading) return null;
 
-            const simData = useMemo(() => {
-                const res = [];
-                const annualR = simRate / 100;
-                const monthlyR = Math.pow(1 + annualR, 1 / 12) - 1;
-                let current = growthBase;
-                for (let i = 0; i <= simYears; i++) {
-                    if (i > 0) {
-                        for (let m = 0; m < 12; m++) current = current * (1 + monthlyR);
-                    }
-                    res.push({ year: `${i}y`, amount: Math.round(current / 10000) });
-                }
-                return res;
-            }, [growthBase, simRate, simYears]);
-
-            const chartDividends = useMemo(() => {
-                const map = {};
-                dividends.forEach(d => {
-                    const m = d.date.substring(5, 7) + "月";
-                    map[m] = (map[m] || 0) + Number(d.amount);
-                });
-                return Object.entries(map).map(([label, amount]) => ({ label, amount })).slice(-6);
-            }, [dividends]);
-
-            // Database Actions
-            const dbRef = () => firebase.firestore().collection('artifacts').doc(MGI_APP_ID).collection('users').doc(user.uid);
-
-            const handleAddAsset = async () => {
-                setSyncing(true);
-                await dbRef().collection('assets').add({...newAsset, amount: Number(newAsset.amount)});
-                setIsAddingAsset(false); setNewAsset({name:'', amount:'', category:'株式'});
-                setSyncing(false);
-            };
-
-            const handleAddProject = async () => {
-                setSyncing(true);
-                await dbRef().collection('projects').add({...newProject, amount: Number(newProject.amount), yield: Number(newProject.yield)});
-                setIsAddingProject(false); setNewProject({name:'', amount:'', yield:'', endDate:''});
-                setSyncing(false);
-            };
-
-            const handleAddDiv = async () => {
-                setSyncing(true);
-                await dbRef().collection('dividends').add({...newDiv, amount: Number(newDiv.amount)});
-                setIsAddingDiv(false); setNewDiv({name:'', amount:'', date: new Date().toISOString().split('T')[0]});
-                setSyncing(false);
-            };
-
-            const handleDelete = async () => {
-                setSyncing(true);
-                const pathMap = { asset: 'assets', project: 'projects', dividend: 'dividends', history: 'history' };
-                await dbRef().collection(pathMap[confirmDelete.type]).doc(confirmDelete.id).delete();
-                setConfirmDelete({isOpen: false});
-                setSyncing(false);
-            };
-
-            const recordSnapshot = async () => {
-                if (!totals.total) return;
-                setSyncing(true);
-                const snap = {
-                    total: totals.total,
-                    timestamp: Date.now(),
-                    dateLabel: (new Date().getMonth() + 1) + "/" + new Date().getDate(),
-                    ...Object.keys(ASSET_CATEGORIES).reduce((acc, cat) => ({...acc, [cat]: totals[cat] || 0}), {})
-                };
-                await dbRef().collection('history').add(snap);
-                setSyncing(false);
-            };
-
-            if (loading) return <div className="min-h-screen flex items-center justify-center bg-[#F8FAFB]"><div className="w-8 h-8 border-4 border-[#D4AF37] border-t-transparent rounded-full animate-spin"></div></div>;
-
-            return (
-                <div className="max-w-md mx-auto min-h-screen pb-32 relative">
-                    {/* Delete Confirm Modal */}
-                    {confirmDelete.isOpen && (
-                        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-6">
-                            <div className="bg-white rounded-[40px] p-8 w-full max-w-xs shadow-2xl space-y-6 animate-pop text-center">
-                                <h3 className="font-bold text-[#455A64]">削除しますか？</h3>
-                                <div className="flex gap-3">
-                                    <button onClick={() => setConfirmDelete({isOpen:false})} className="flex-1 py-4 text-xs font-bold text-gray-400">戻る</button>
-                                    <button onClick={handleDelete} className="flex-1 py-4 bg-red-500 text-white rounded-2xl text-xs font-bold">削除</button>
+                return (
+                    <div className="max-w-md mx-auto min-h-screen pb-32 relative animate-pop">
+                        <header className="p-6 pt-10 flex justify-between items-end sticky top-0 bg-[#F8FAFB]/95 backdrop-blur-md z-40">
+                            <div>
+                                <h1 className="text-2xl font-bold text-[#455A64] main-title">Money Grow IG</h1>
+                                <div className="flex items-center gap-1 mt-1 text-emerald-500">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>
+                                    <span className="text-[8px] font-bold uppercase tracking-widest">Active</span>
                                 </div>
                             </div>
-                        </div>
-                    )}
-
-                    <header className="p-6 pt-10 flex justify-between items-end sticky top-0 bg-[#F8FAFB]/90 backdrop-blur-md z-40">
-                        <div>
-                            <h1 className="text-2xl font-bold text-[#455A64] main-title">Money Grow IG</h1>
-                            <div className="flex items-center gap-1.5 mt-1">
-                                <div className={`w-1.5 h-1.5 rounded-full ${syncing ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}`}></div>
-                                <span className="text-[8px] font-bold text-gray-400 uppercase tracking-widest">{syncing ? 'Syncing...' : 'Cloud Safe'}</span>
+                            <div className="text-right">
+                                <p className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter">Total</p>
+                                <p className="text-xl font-bold text-[#455A64]">{(totals.total/10000).toLocaleString()}万</p>
                             </div>
-                        </div>
-                        <div className="text-right">
-                            <p className="text-[9px] font-bold text-gray-400 uppercase">Current Assets</p>
-                            <p className="text-xl font-bold text-[#455A64]">{formatYen(totals.total)}</p>
-                        </div>
-                    </header>
+                        </header>
 
-                    <main className="px-5 mt-4 space-y-6">
-                        {/* TAB 1: ASSETS */}
-                        {activeTab === 'assets' && (
-                            <div className="space-y-6 animate-pop">
-                                <div className="bg-white p-6 rounded-[32px] shadow-sm border border-gray-100 flex items-center gap-6">
-                                    <div className="w-24 h-24 shrink-0">
+                        <main className="px-5 mt-4">
+                            <div className="bg-white p-6 rounded-[40px] shadow-sm border border-gray-100 flex items-center gap-6">
+                                <div className="w-24 h-24 shrink-0 flex items-center justify-center">
+                                    {Re ? (
                                         <ResponsiveContainer width="100%" height="100%">
-                                            <PieChart>
-                                                <Pie data={Object.keys(ASSET_CATEGORIES).map(cat => ({ name: cat, value: totals[cat] || 0 }))} innerRadius={25} outerRadius={38} paddingAngle={3} dataKey="value" stroke="none">
-                                                    {Object.keys(ASSET_CATEGORIES).map((cat, i) => <Cell key={i} fill={ASSET_CATEGORIES[cat].color} />)}
-                                                </Pie>
-                                            </PieChart>
+                                            <Re.PieChart>
+                                                <Re.Pie data={Object.keys(ASSET_CATEGORIES).map(cat=>({name:cat, value:totals[cat]||0}))} innerRadius={25} outerRadius={40} paddingAngle={4} dataKey="value" stroke="none">
+                                                    {Object.keys(ASSET_CATEGORIES).map((cat, i) => <Re.Cell key={i} fill={ASSET_CATEGORIES[cat].color} />)}
+                                                </Re.Pie>
+                                            </Re.PieChart>
                                         </ResponsiveContainer>
-                                    </div>
-                                    <div className="flex-1 grid grid-cols-1 gap-y-1.5">
-                                        {Object.entries(ASSET_CATEGORIES).map(([name, info]) => (
-                                            <div key={name} className={`flex items-center justify-between ${totals[name] > 0 ? 'opacity-100' : 'opacity-20'}`}>
-                                                <div className="flex items-center gap-1.5 truncate"><div className="w-2 h-2 rounded-full" style={{ backgroundColor: info.color }}></div><span className="text-[9px] font-bold text-gray-500 uppercase">{info.label}</span></div>
-                                                <span className="text-[9px] font-bold text-[#455A64]">{formatYen(totals[name] || 0)}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                                <div className="space-y-2">
-                                    {assets.map(a => (
-                                        <div key={a.id} className="bg-white p-4 rounded-2xl flex justify-between items-center shadow-sm border border-gray-50">
-                                            <div className="flex items-center gap-3">
-                                                <div className="p-2 rounded-lg" style={{ backgroundColor: ASSET_CATEGORIES[a.category].color + '15', color: ASSET_CATEGORIES[a.category].color }}><Icon name={ASSET_CATEGORIES[a.category].icon} className="w-4 h-4" /></div>
-                                                <div><div className="text-sm font-bold text-[#455A64]">{a.name}</div><div className="text-[8px] text-gray-400 font-bold uppercase">{a.category}</div></div>
-                                            </div>
-                                            <div className="flex items-center gap-3">
-                                                <span className="font-bold text-[#455A64] text-sm">{formatYen(a.amount)}</span>
-                                                <button onClick={() => setConfirmDelete({isOpen:true, type:'asset', id:a.id, name:a.name})} className="text-gray-200"><Icon name="trash-2" className="w-3.5 h-3.5" /></button>
-                                            </div>
-                                        </div>
-                                    ))}
-                                    {isAddingAsset ? (
-                                        <div className="bg-white p-6 rounded-[32px] border-2 border-[#D4AF37] space-y-4 animate-pop">
-                                            <input type="text" placeholder="資産名称" className="w-full p-4 bg-gray-50 rounded-xl text-sm font-bold" value={newAsset.name} onChange={e=>setNewAsset({...newAsset, name: e.target.value})} />
-                                            <input type="number" placeholder="金額" className="w-full p-4 bg-gray-50 rounded-xl text-sm font-bold" value={newAsset.amount} onChange={e=>setNewAsset({...newAsset, amount: e.target.value})} />
-                                            <div className="grid grid-cols-2 gap-2">
-                                                {Object.keys(ASSET_CATEGORIES).map(cat => (<button key={cat} onClick={()=>setNewAsset({...newAsset, category: cat})} className={`py-2 rounded-lg text-[9px] font-bold ${newAsset.category === cat ? 'bg-[#455A64] text-white' : 'bg-gray-100 text-gray-400'}`}>{ASSET_CATEGORIES[cat].label}</button>))}
-                                            </div>
-                                            <div className="flex gap-2"><button onClick={()=>setIsAddingAsset(false)} className="flex-1 text-xs text-gray-400">閉じる</button><button onClick={handleAddAsset} className="flex-1 py-3 bg-[#455A64] text-white rounded-xl text-xs font-bold">保存</button></div>
-                                        </div>
                                     ) : (
-                                        <button onClick={()=>setIsAddingAsset(true)} className="w-full py-5 rounded-2xl border-2 border-dashed border-gray-200 text-gray-300 text-[10px] font-bold uppercase tracking-widest flex items-center justify-center gap-2"><Icon name="plus" /> 資産を追加</button>
+                                        <div className="w-full h-full bg-gray-50 rounded-full flex items-center justify-center text-[#D4AF37]">
+                                            <Icon name="pie-chart" />
+                                        </div>
                                     )}
                                 </div>
-                            </div>
-                        )}
-
-                        {/* TAB 2: DIVIDEND */}
-                        {activeTab === 'dividend' && (
-                            <div className="space-y-6 animate-pop">
-                                <div className="bg-[#455A64] p-8 rounded-[40px] text-white shadow-xl relative overflow-hidden">
-                                    <h3 className="text-xl font-bold mb-4 text-[#D4AF37] uppercase flex items-center gap-2"><Icon name="banknote" /> 株式配当</h3>
-                                    <p className="text-[10px] uppercase font-bold opacity-40 mb-1">受取配当総額</p>
-                                    <p className="text-3xl font-bold">{dividends.reduce((acc, d) => acc + Number(d.amount), 0).toLocaleString()}円</p>
-                                </div>
-                                <div className="bg-white p-6 rounded-[32px] border border-gray-100">
-                                    <div className="flex justify-between items-center mb-6"><h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">月別実績</h3><button onClick={()=>setIsAddingDiv(true)} className="p-2 bg-[#F8FAFB] rounded-full text-[#D4AF37]"><Icon name="plus" /></button></div>
-                                    <div className="h-40 w-full">
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <BarChart data={chartDividends}>
-                                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                                                <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{fontSize: 10}} />
-                                                <Bar dataKey="amount" fill="#D4AF37" radius={[4, 4, 0, 0]} barSize={20} />
-                                            </BarChart>
-                                        </ResponsiveContainer>
-                                    </div>
-                                </div>
-                                <div className="space-y-2">
-                                    {dividends.slice().reverse().map(d => (
-                                        <div key={d.id} className="bg-white p-4 rounded-2xl flex justify-between items-center shadow-sm">
-                                            <div><div className="text-xs font-bold text-[#455A64]">{d.name}</div><div className="text-[8px] text-gray-400">{d.date}</div></div>
-                                            <div className="flex items-center gap-3">
-                                                <span className="text-emerald-500 font-bold text-xs">+{Number(d.amount).toLocaleString()}円</span>
-                                                <button onClick={()=>setConfirmDelete({isOpen:true, type:'dividend', id:d.id, name:d.name})} className="text-gray-100"><Icon name="x" className="w-3 h-3" /></button>
+                                <div className="flex-1 space-y-1">
+                                    {Object.entries(ASSET_CATEGORIES).map(([name, info]) => (
+                                        totals[name] > 0 && (
+                                            <div key={name} className="flex items-center justify-between">
+                                                <span className="text-[8px] font-bold text-gray-400 uppercase">{info.label}</span>
+                                                <span className="text-[10px] font-bold text-[#455A64]">{Math.round(totals[name]/totals.total*100)}%</span>
                                             </div>
-                                        </div>
+                                        )
                                     ))}
-                                    {isAddingDiv && (
-                                        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-6"><div className="bg-white rounded-[40px] p-8 w-full max-w-sm space-y-4 animate-pop">
-                                            <h3 className="font-bold text-[#455A64]">配当記録</h3>
-                                            <input type="text" placeholder="銘柄名" className="w-full p-4 bg-gray-50 rounded-xl text-sm font-bold" value={newDiv.name} onChange={e=>setNewDiv({...newDiv, name:e.target.value})} />
-                                            <input type="number" placeholder="金額" className="w-full p-4 bg-gray-50 rounded-xl text-sm font-bold" value={newDiv.amount} onChange={e=>setNewDiv({...newDiv, amount:e.target.value})} />
-                                            <input type="date" className="w-full p-4 bg-gray-50 rounded-xl text-xs font-bold" value={newDiv.date} onChange={e=>setNewDiv({...newDiv, date:e.target.value})} />
-                                            <div className="flex gap-2"><button onClick={()=>setIsAddingDiv(false)} className="flex-1 text-xs text-gray-400">閉じる</button><button onClick={handleAddDiv} className="flex-1 py-3 bg-[#D4AF37] text-white rounded-xl text-xs font-bold">保存</button></div>
-                                        </div></div>
-                                    )}
                                 </div>
                             </div>
-                        )}
 
-                        {/* TAB 3: PROJECTS */}
-                        {activeTab === 'projects' && (
-                            <div className="space-y-6 animate-pop">
-                                <div className="bg-[#455A64] p-8 rounded-[40px] text-white shadow-xl relative overflow-hidden">
-                                    <h3 className="text-xl font-bold mb-4 text-[#B2EBF2] uppercase flex items-center gap-2"><Icon name="building-2" /> クラファン案件</h3>
-                                    <p className="text-[10px] uppercase font-bold opacity-40 mb-1">運用中総額</p>
-                                    <p className="text-3xl font-bold">{projects.reduce((acc, p) => acc + Number(p.amount), 0).toLocaleString()}円</p>
-                                </div>
-                                <div className="flex justify-between items-center"><h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">案件リスト</h3><button onClick={()=>setIsAddingProject(true)} className="text-[10px] font-bold text-[#D4AF37]">+ 新規登録</button></div>
-                                <div className="space-y-3">
-                                    {projects.map(p => (
-                                        <div key={p.id} className="bg-white p-5 rounded-3xl shadow-sm border border-gray-50 flex justify-between items-center">
-                                            <div><div className="text-sm font-bold text-[#455A64]">{p.name}</div><div className="text-[8px] text-gray-400 font-bold">利回り: {p.yield}% / 償還: {p.endDate}</div></div>
-                                            <div className="flex items-center gap-4">
-                                                <div className="text-right"><div className="text-[8px] text-gray-300 font-bold uppercase">Invested</div><div className="text-xs font-bold text-[#455A64]">{Number(p.amount).toLocaleString()}円</div></div>
-                                                <button onClick={()=>setConfirmDelete({isOpen:true, type:'project', id:p.id, name:p.name})} className="text-gray-200"><Icon name="trash-2" className="w-4 h-4" /></button>
-                                            </div>
+                            <div className="mt-8 space-y-2">
+                                {assets.map(a => (
+                                    <div key={a.id} className="bg-white p-4 rounded-3xl flex justify-between items-center shadow-sm border border-gray-50">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2.5 rounded-2xl" style={{backgroundColor: ASSET_CATEGORIES[a.category].color+'15', color: ASSET_CATEGORIES[a.category].color}}><Icon name={ASSET_CATEGORIES[a.category].icon} /></div>
+                                            <div className="text-sm font-bold text-[#455A64]">{a.name}</div>
                                         </div>
-                                    ))}
-                                    {isAddingProject && (
-                                        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-6"><div className="bg-white rounded-[40px] p-8 w-full max-w-sm space-y-4 animate-pop">
-                                            <h3 className="font-bold text-[#455A64]">案件登録</h3>
-                                            <input type="text" placeholder="案件名" className="w-full p-4 bg-gray-50 rounded-xl text-sm font-bold" value={newProject.name} onChange={e=>setNewProject({...newProject, name:e.target.value})} />
-                                            <input type="number" placeholder="投資金額" className="w-full p-4 bg-gray-50 rounded-xl text-sm font-bold" value={newProject.amount} onChange={e=>setNewProject({...newProject, amount:e.target.value})} />
-                                            <div className="grid grid-cols-2 gap-2">
-                                                <input type="number" step="0.1" placeholder="利回り(%)" className="w-full p-4 bg-gray-50 rounded-xl text-sm font-bold" value={newProject.yield} onChange={e=>setNewProject({...newProject, yield:e.target.value})} />
-                                                <input type="date" className="w-full p-4 bg-gray-50 rounded-xl text-[10px] font-bold" value={newProject.endDate} onChange={e=>setNewProject({...newProject, endDate:e.target.value})} />
-                                            </div>
-                                            <div className="flex gap-2"><button onClick={()=>setIsAddingProject(false)} className="flex-1 text-xs text-gray-400">閉じる</button><button onClick={handleAddProject} className="flex-1 py-3 bg-[#455A64] text-white rounded-xl text-xs font-bold">保存</button></div>
-                                        </div></div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* TAB 4: PLAN */}
-                        {activeTab === 'plan' && (
-                            <div className="space-y-6 animate-pop pb-10">
-                                <div className="bg-white p-8 rounded-[40px] shadow-sm border border-gray-100 space-y-8">
-                                    <h3 className="text-xs font-bold text-[#455A64] uppercase tracking-widest flex items-center gap-2"><Icon name="trending-up" className="text-[#D4AF37]" /> 資産推移予測</h3>
-                                    <div className="h-44 w-full">
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <AreaChart data={simData}>
-                                                <defs><linearGradient id="colorSim" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#D4AF37" stopOpacity={0.3}/><stop offset="95%" stopColor="#D4AF37" stopOpacity={0}/></linearGradient></defs>
-                                                <XAxis dataKey="year" axisLine={false} tickLine={false} tick={{fontSize: 10}} />
-                                                <Area type="monotone" dataKey="amount" stroke="#D4AF37" strokeWidth={3} fillOpacity={1} fill="url(#colorSim)" />
-                                            </AreaChart>
-                                        </ResponsiveContainer>
+                                        <span className="font-bold text-[#455A64]">{(a.amount/10000).toLocaleString()}万</span>
                                     </div>
-                                    <div className="space-y-6">
-                                        <div className="space-y-2"><div className="flex justify-between items-center"><label className="text-[10px] font-bold text-gray-400 uppercase">目標利回り(%)</label><span className="text-sm font-bold">{simRate}%</span></div><input type="range" min="0" max="15" step="0.5" value={simRate} onChange={e=>setSimRate(Number(e.target.value))} className="w-full" /></div>
-                                        <div className="space-y-2"><div className="flex justify-between items-center"><label className="text-[10px] font-bold text-gray-400 uppercase">期間(年)</label><span className="text-sm font-bold">{simYears}年</span></div><input type="range" min="1" max="50" step="1" value={simYears} onChange={e=>setSimYears(Number(e.target.value))} className="w-full" /></div>
-                                        <div className="p-8 bg-[#455A64] rounded-[32px] text-center shadow-xl"><span className="text-[10px] font-bold text-[#B2EBF2] uppercase tracking-[0.2em] block mb-2">{simYears}年後の資産推移予測</span><span className="text-3xl font-bold text-white leading-none">{simData[simData.length-1].amount.toLocaleString()}万円</span></div>
-                                    </div>
-                                </div>
+                                ))}
+                                <p className="text-center text-[10px] text-gray-300 mt-6 font-bold tracking-[0.2em] uppercase">— Strategic Wealth Management —</p>
                             </div>
-                        )}
+                        </main>
 
-                        {/* TAB 5: HISTORY */}
-                        {activeTab === 'history' && (
-                            <div className="space-y-6 animate-pop">
-                                <div className="bg-white p-8 rounded-[40px] shadow-sm border border-gray-100">
-                                    <div className="flex justify-between items-center mb-10"><h3 className="text-xs font-bold text-[#455A64] uppercase tracking-widest flex items-center gap-2"><Icon name="history" className="text-[#D4AF37]" /> 推移の記録</h3><button onClick={recordSnapshot} className="p-3 bg-[#455A64] text-white rounded-full shadow-lg"><Icon name="camera" /></button></div>
-                                    {history.length > 0 ? (
-                                        <div className="h-64 w-full">
-                                            <ResponsiveContainer width="100%" height="100%">
-                                                <AreaChart data={history}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f5f5f5" /><XAxis dataKey="dateLabel" axisLine={false} tickLine={false} tick={{fontSize: 10}} /><Tooltip formatter={(val) => (val/10000).toLocaleString() + '万'} /><Legend iconType="circle" />{Object.entries(ASSET_CATEGORIES).map(([name, info]) => (<Area key={name} type="monotone" dataKey={name} stackId="1" stroke={info.color} fill={info.color} fillOpacity={0.6} name={info.label} />))}</AreaChart>
-                                            </ResponsiveContainer>
-                                        </div>
-                                    ) : <div className="h-40 flex items-center justify-center border-2 border-dashed rounded-3xl text-gray-300 text-xs">記録がありません</div>}
-                                </div>
-                            </div>
-                        )}
-                    </main>
+                        <nav className="fixed bottom-6 left-6 right-6 h-20 glass-nav rounded-[32px] shadow-2xl flex items-center justify-around px-4 z-50">
+                            <button onClick={()=>setActiveTab('assets')} className="text-[#D4AF37]"><Icon name="list" /></button>
+                            <button className="text-gray-300"><Icon name="banknote" /></button>
+                            <button className="text-gray-300"><Icon name="trending-up" /></button>
+                        </nav>
+                    </div>
+                );
+            };
 
-                    {/* BOTTOM NAV */}
-                    <nav className="fixed bottom-6 left-4 right-4 h-20 glass-nav rounded-[32px] shadow-2xl flex items-center justify-around px-2 z-50">
-                        <button onClick={()=>setActiveTab('assets')} className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === 'assets' ? 'text-[#D4AF37] scale-110' : 'text-gray-300'}`}><Icon name="list" /><span className="text-[7px] font-bold uppercase tracking-widest">Balance</span></button>
-                        <button onClick={()=>setActiveTab('dividend')} className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === 'dividend' ? 'text-[#D4AF37] scale-110' : 'text-gray-300'}`}><Icon name="banknote" /><span className="text-[7px] font-bold uppercase tracking-widest">Div</span></button>
-                        <button onClick={()=>setActiveTab('projects')} className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === 'projects' ? 'text-[#D4AF37] scale-110' : 'text-gray-300'}`}><Icon name="building-2" /><span className="text-[7px] font-bold uppercase tracking-widest">Project</span></button>
-                        <button onClick={()=>setActiveTab('plan')} className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === 'plan' ? 'text-[#D4AF37] scale-110' : 'text-gray-300'}`}><Icon name="trending-up" /><span className="text-[7px] font-bold uppercase tracking-widest">Plan</span></button>
-                        <button onClick={()=>setActiveTab('history')} className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === 'history' ? 'text-[#D4AF37] scale-110' : 'text-gray-300'}`}><Icon name="history" /><span className="text-[7px] font-bold uppercase tracking-widest">History</span></button>
-                    </nav>
-                </div>
-            );
+            const root = ReactDOM.createRoot(document.getElementById('root'));
+            root.render(<App />);
         };
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+        // 起動
+        initApp();
     </script>
 </body>
 </html>
